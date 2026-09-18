@@ -172,3 +172,49 @@ begin
     execute format('create policy "public_delete_%s" on %I for delete to anon using (true)', t, t);
   end loop;
 end $$;
+
+
+-- Enable Supabase Realtime for live updates across browser sessions.
+do $$
+begin
+  begin
+    alter publication supabase_realtime add table customers;
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table item_master;
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table receivers;
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table suppliers;
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table sales;
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table collections;
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table collection_allocations;
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table purchases;
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table purchase_items;
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table stock_transactions;
+  exception when duplicate_object then null;
+  end;
+end $$;
