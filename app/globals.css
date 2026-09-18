@@ -194,3 +194,39 @@ input,select,textarea{border-color:#d8e0ea;border-radius:9px;min-height:42px;tra
  .report-side-btn{min-height:44px}
 }
 @media(max-width:480px){.report-side-btn{padding:7px 8px;font-size:13px}.report-side-icon{font-size:15px}}
+
+
+/* Collections, payment, purchase and stock history improvements */
+.collection-filters{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:end}
+.collection-filters label{font-size:12px;font-weight:700;color:#475467}
+.collection-filters input,.collection-filters select{margin-top:6px}
+.filter-clear{min-height:42px}
+.old-due-box{margin:18px 0;padding:14px 16px;border:1px solid #f5d48a;background:#fffaf0;border-radius:11px;display:flex;justify-content:space-between;align-items:center;gap:15px}
+.old-due-box div{display:flex;flex-direction:column;gap:4px}.old-due-box small{color:#667085}.old-due-box input{max-width:220px}
+.payment-section-title{margin:24px 0 12px}
+.payment-mobile-list{display:grid;gap:10px}
+.payment-invoice-card{border:1px solid #e1e7f0;border-radius:12px;background:#fbfcff;padding:14px}
+.payment-invoice-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.payment-invoice-head b{color:#1d4ed8}.payment-invoice-head span{font-size:12px;color:#667085}
+.payment-invoice-grid{display:grid;grid-template-columns:repeat(3,1fr) 1.4fr;gap:10px;align-items:end}
+.payment-invoice-grid>div,.payment-invoice-grid>label{background:#fff;border:1px solid #e7ebf2;border-radius:9px;padding:9px}
+.payment-invoice-grid small{display:block;color:#667085;font-size:11px;margin-bottom:4px}.payment-invoice-grid input{margin:0;min-height:40px}
+.btn-highlight{box-shadow:0 0 0 3px rgba(37,99,235,.12),0 7px 18px rgba(37,99,235,.18);font-weight:800}
+.stock-history-modal{width:min(900px,100%)}
+.stock-history-modal small{color:#667085}
+.purchase-edit-note{color:#667085;font-size:12px}
+@media(max-width:760px){
+ .collection-filters{grid-template-columns:1fr 1fr}
+ .filter-clear{grid-column:1/-1}
+ .old-due-box{flex-direction:column;align-items:stretch}
+ .old-due-box input{max-width:none}
+ .payment-invoice-grid{grid-template-columns:repeat(2,1fr)}
+ .payment-invoice-grid>label{grid-column:1/-1}
+ .collection-filters label{min-width:0}
+}
+@media(max-width:480px){
+ .collection-filters{grid-template-columns:1fr}
+ .filter-clear{grid-column:auto;width:100%}
+ .payment-invoice-grid{grid-template-columns:1fr 1fr}
+ .payment-invoice-grid>label{grid-column:1/-1}
+}

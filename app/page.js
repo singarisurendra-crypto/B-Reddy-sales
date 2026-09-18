@@ -54,6 +54,15 @@ export default function Home() {
   const [paymentReceiver, setPaymentReceiver] = useState("");
   const [paymentDate, setPaymentDate] = useState(today());
   const [paymentNote, setPaymentNote] = useState("");
+  const [paymentInvoiceId, setPaymentInvoiceId] = useState(null);
+  const [paymentOldDue, setPaymentOldDue] = useState("");
+  const [editingCollection, setEditingCollection] = useState(null);
+  const [collectionDateFrom, setCollectionDateFrom] = useState("");
+  const [collectionDateTo, setCollectionDateTo] = useState("");
+  const [collectionReceiverFilter, setCollectionReceiverFilter] = useState("");
+  const [collectionForm, setCollectionForm] = useState({collection_date:today(),receiver_id:"",total_amount:0,remarks:""});
+  const [stockHistoryItem, setStockHistoryItem] = useState(null);
+  const [editingPurchase, setEditingPurchase] = useState(null);
   const [purchaseDate, setPurchaseDate] = useState(today());
   const [purchaseSupplier, setPurchaseSupplier] = useState("");
   const [purchaseItems, setPurchaseItems] = useState([{ item_id: "", rate: 0, qty: 1 }]);
@@ -63,7 +72,23 @@ export default function Home() {
   const [masterTab, setMasterTab] = useState("customers");
   const [reportTab, setReportTab] = useState("invoices");
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => {
+    loadAll();
+    const channel = supabase
+      .channel("b-reddy-sales-live")
+      .on("postgres_changes", {event:"*", schema:"public", table:"customers"}, () => loadAll())
+      .on("postgres_changes", {event:"*", schema:"public", table:"item_master"}, () => loadAll())
+      .on("postgres_changes", {event:"*", schema:"public", table:"receivers"}, () => loadAll())
+      .on("postgres_changes", {event:"*", schema:"public", table:"suppliers"}, () => loadAll())
+      .on("postgres_changes", {event:"*", schema:"public", table:"sales"}, () => loadAll())
+      .on("postgres_changes", {event:"*", schema:"public", table:"collections"}, () => loadAll())
+      .on("postgres_changes", {event:"*", schema:"public", table:"collection_allocations"}, () => loadAll())
+      .on("postgres_changes", {event:"*", schema:"public", table:"purchases"}, () => loadAll())
+      .on("postgres_changes", {event:"*", schema:"public", table:"purchase_items"}, () => loadAll())
+      .on("postgres_changes", {event:"*", schema:"public", table:"stock_transactions"}, () => loadAll())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   async function loadAll() {
     setLoading(true);
@@ -240,10 +265,19 @@ export default function Home() {
     const { error:stockErr } = await supabase.from("stock_transactions").insert(stockRows);
     if (stockErr) return flash(stockErr.message);
     if (paidForSale > 0 && saleReceiver) {
-      await supabase.from("collections").insert({collection_no:`COL-${Date.now()}`, collection_date:saleDate, customer_id:Number(saleCustomer), receiver_id:Number(saleReceiver), total_amount:paidForSale, remarks:`Payment for ${inv}`});
-      const {data:col} = await supabase.from("collections").select("id").eq("collection_no",`COL-${Date.now()}`).maybeSingle();
-      void col;
-      await supabase.from("receivers").update({current_balance: Number(receivers.find(r=>r.id===Number(saleReceiver))?.current_balance||0)+paidForSale}).eq("id",Number(saleReceiver));
+      const collectionNo = `COL-${Date.now()}`;
+      const {data:col,error:colErr}=await supabase.from("collections").insert({
+        collection_no:collectionNo, collection_date:saleDate, customer_id:Number(saleCustomer),
+        receiver_id:Number(saleReceiver), total_amount:paidForSale, remarks:`Payment for ${inv}`
+      }).select().single();
+      if(colErr) return flash(colErr.message);
+      const {error:allocErr}=await supabase.from("collection_allocations").insert({
+        collection_id:col.id, sale_id:sale.id, amount:paidForSale
+      });
+      if(allocErr) return flash(allocErr.message);
+      await supabase.from("receivers").update({
+        current_balance: Number(receivers.find(r=>r.id===Number(saleReceiver))?.current_balance||0)+paidForSale
+      }).eq("id",Number(saleReceiver));
     }
     setSaleCustomer(""); setSaleItems([{item_id:"",rate:0,qty:1}]); setSalePayment("DUE"); setSalePaid(0); setSaleReceiver("");
     await loadAll(); go("dashboard"); flash(`${inv} saved successfully.`);
@@ -252,34 +286,121 @@ export default function Home() {
   async function makePayment(e) {
     e.preventDefault();
     if (!paymentCustomer || !paymentReceiver) return flash("Select customer and receiver.");
-    const allocations = Object.entries(paymentAmounts).filter(([,v]) => Number(v) > 0);
-    if (!allocations.length) return flash("Enter a payment amount.");
-    const total = allocations.reduce((a,[,v])=>a+Number(v),0);
+
+    const customer = customers.find(c=>c.id===Number(paymentCustomer));
+    const oldDueAmount = Number(paymentOldDue || 0);
+    const allocations = Object.entries(paymentAmounts)
+      .filter(([,v]) => Number(v) > 0)
+      .map(([saleId,v]) => [saleId, Number(v)]);
+
+    const invoiceTotal = allocations.reduce((a,[,v])=>a+v,0);
+    const total = invoiceTotal + oldDueAmount;
+    if (oldDueAmount > Number(customer?.opening_due||0)) return flash("Old due collection cannot exceed the customer's old due.");
+    if (!total) return flash("Enter a payment amount.");
+
     const receiver = receivers.find(x=>x.id===Number(paymentReceiver));
     const {data:col,error} = await supabase.from("collections").insert({
-      collection_no:`COL-${Date.now()}`, collection_date:paymentDate, customer_id:Number(paymentCustomer),
-      receiver_id:Number(paymentReceiver), total_amount:total, remarks:paymentNote
+      collection_no:`COL-${Date.now()}`,
+      collection_date:paymentDate,
+      customer_id:Number(paymentCustomer),
+      receiver_id:Number(paymentReceiver),
+      total_amount:total,
+      remarks:paymentNote || (allocations.length ? `Payment for ${allocations.map(([saleId])=>sales.find(s=>s.id===Number(saleId))?.invoice_no).filter(Boolean).join(", ")}` : "Collection against old due")
     }).select().single();
     if (error) return flash(error.message);
-    const rows = allocations.map(([saleId,v])=>({collection_id:col.id,sale_id:Number(saleId),amount:Number(v)}));
-    const {error:aErr}=await supabase.from("collection_allocations").insert(rows);
-    if (aErr) return flash(aErr.message);
-    for (const [saleId,v] of allocations) {
-      const sale=sales.find(x=>x.id===Number(saleId));
-      if (!sale) continue;
-      const newPaid=Math.min(Number(sale.total_amount),Number(sale.paid_amount||0)+Number(v));
-      const newDue=Math.max(0,Number(sale.total_amount)-newPaid);
-      await supabase.from("sales").update({paid_amount:newPaid,due_amount:newDue,payment_status:newDue===0?"PAID":"PARTIAL"}).eq("id",sale.id);
+
+    if (allocations.length) {
+      const rows = allocations.map(([saleId,v])=>({collection_id:col.id,sale_id:Number(saleId),amount:v}));
+      const {error:aErr}=await supabase.from("collection_allocations").insert(rows);
+      if (aErr) return flash(aErr.message);
+
+      for (const [saleId,v] of allocations) {
+        const sale=sales.find(x=>x.id===Number(saleId));
+        if (!sale) continue;
+        const newPaid=Math.min(Number(sale.total_amount),Number(sale.paid_amount||0)+v);
+        const newDue=Math.max(0,Number(sale.total_amount)-newPaid);
+        await supabase.from("sales").update({
+          paid_amount:newPaid,
+          due_amount:newDue,
+          payment_status:newDue===0?"PAID":"PARTIAL"
+        }).eq("id",sale.id);
+      }
     }
-    await supabase.from("receivers").update({current_balance:Number(receiver?.current_balance||0)+total}).eq("id",Number(paymentReceiver));
-    setPaymentAmounts({}); setPaymentCustomer(""); setPaymentReceiver(""); setPaymentNote("");
-    await loadAll(); go("collections"); flash("Payment recorded.");
+
+    if (oldDueAmount > 0) {
+      await supabase.from("customers")
+        .update({opening_due:Math.max(0,Number(customer?.opening_due||0)-oldDueAmount)})
+        .eq("id",Number(paymentCustomer));
+    }
+
+    await supabase.from("receivers")
+      .update({current_balance:Number(receiver?.current_balance||0)+total})
+      .eq("id",Number(paymentReceiver));
+
+    setPaymentAmounts({});
+    setPaymentOldDue("");
+    setPaymentCustomer("");
+    setPaymentReceiver("");
+    setPaymentInvoiceId(null);
+    setPaymentNote("");
+    await loadAll();
+    go("collections");
+    flash("Collection recorded successfully.");
   }
 
   async function createPurchase(e) {
     e.preventDefault();
     if (!purchaseSupplier) return flash("Select supplier.");
     if (purchaseItems.some(x=>!x.item_id || Number(x.qty)<=0)) return flash("Select valid purchase items.");
+
+    if (editingPurchase) {
+      const old = purchases.find(x=>x.id===Number(editingPurchase));
+      if (!old) return flash("Purchase record not found.");
+
+      // Restore the old receiver balance before applying the edited payment.
+      if (old.receiver_id && Number(old.paid_amount||0)) {
+        const oldReceiver = receivers.find(r=>r.id===Number(old.receiver_id));
+        await supabase.from("receivers").update({
+          current_balance:Number(oldReceiver?.current_balance||0)+Number(old.paid_amount||0)
+        }).eq("id",Number(old.receiver_id));
+      }
+
+      const {error:uErr}=await supabase.from("purchases").update({
+        purchase_date:purchaseDate,
+        supplier_id:Number(purchaseSupplier),
+        total_amount:purchaseTotal,
+        paid_amount:paidForPurchase,
+        due_amount:dueForPurchase,
+        payment_status:purchasePayment,
+        receiver_id:purchaseReceiver?Number(purchaseReceiver):null
+      }).eq("id",Number(editingPurchase));
+      if (uErr) return flash(uErr.message);
+
+      await supabase.from("purchase_items").delete().eq("purchase_id",Number(editingPurchase));
+      await supabase.from("stock_transactions").delete().eq("reference_id",Number(editingPurchase)).eq("transaction_type","PURCHASE");
+
+      const rows=purchaseItems.map(x=>({purchase_id:Number(editingPurchase),item_id:Number(x.item_id),rate:Number(x.rate),qty:Number(x.qty),amount:Number(x.rate)*Number(x.qty)}));
+      const {error:piErr}=await supabase.from("purchase_items").insert(rows);
+      if(piErr) return flash(piErr.message);
+
+      const stockRows=purchaseItems.map(x=>({transaction_date:purchaseDate,item_id:Number(x.item_id),transaction_type:"PURCHASE",reference_id:Number(editingPurchase),qty_in:Number(x.qty),qty_out:0,rate:Number(x.rate)}));
+      const {error:stErr}=await supabase.from("stock_transactions").insert(stockRows);
+      if(stErr) return flash(stErr.message);
+
+      if(paidForPurchase && purchaseReceiver){
+        const r=receivers.find(x=>x.id===Number(purchaseReceiver));
+        const baseBalance = Number(r?.current_balance||0) + (old.receiver_id && Number(old.receiver_id)===Number(purchaseReceiver) ? Number(old.paid_amount||0) : 0);
+        await supabase.from("receivers").update({
+          current_balance:baseBalance-paidForPurchase
+        }).eq("id",Number(purchaseReceiver));
+      }
+
+      setEditingPurchase(null);
+      setPurchaseSupplier("");setPurchaseItems([{item_id:"",rate:0,qty:1}]);setPurchasePayment("DUE");setPurchasePaid(0);setPurchaseReceiver("");
+      await loadAll();go("procurement");flash(`${old.purchase_no} updated successfully.`);
+      return;
+    }
+
     const {data:no,error:noErr}=await supabase.rpc("next_purchase_number");
     if (noErr) return flash("Run the supplied Supabase SQL first. Purchase number function is missing.");
     const {data:pur,error}=await supabase.from("purchases").insert({
@@ -479,19 +600,193 @@ export default function Home() {
 
   function CustomerDetail(){const c=selectedCustomer;const list=sales.filter(s=>s.customer_id===c?.id);return <><Header title={c?c.customer_name:"Customer"}><button className="btn secondary" onClick={()=>go("customers")}>Back</button><button className="btn primary" onClick={()=>go("payment")}>＋ Collect Amount</button></Header><div className="cards"><Card t="Mobile" v={c?.mobile_no||"-"}/><Card t="Total Due" v={money(customerDue(c?.id))}/><Card t="Invoices" v={list.length}/><Card t="30+ Days Due" v={money(list.filter(s=>Math.floor((Date.now()-new Date(s.invoice_date))/86400000)>30).reduce((a,x)=>a+Number(x.due_amount||0),0))}/></div><div className="panel"><h3>All Invoices</h3><Table><thead><tr><th>Invoice</th><th>Date</th><th>Amount</th><th>Paid</th><th>Due</th><th>Status</th></tr></thead><tbody>{list.map(s=><tr key={s.id}><td className="link" onClick={()=>{setSelectedInvoice(s);go("invoice-detail")}}>{s.invoice_no}</td><td>{s.invoice_date}</td><td>{money(s.total_amount)}</td><td>{money(s.paid_amount)}</td><td>{money(s.due_amount)}</td><td><Status status={s.payment_status}/></td></tr>)}{!list.length&&<Empty col="6" text="No invoices for this customer."/ >}</tbody></Table></div></>}
 
-  function InvoiceDetail(){const s=selectedInvoice;return <><Header title={s?.invoice_no||"Invoice"}><button className="btn secondary" onClick={()=>go("customer-detail")}>Back</button></Header><div className="panel invoice"><div className="invoice-head"><div><b>{s?.customers?.customer_name}</b><div>{s?.customers?.mobile_no}</div></div><div>Date: {s?.invoice_date}</div></div><Table><thead><tr><th>Master</th><th>Item</th><th>Rate</th><th>Qty</th><th>Amount</th></tr></thead><tbody>{(s?.sale_items||[]).map(x=><tr key={x.id}><td>{x.item_master?.master_name||"-"}</td><td>{x.item_master?.item_name}</td><td>{money(x.rate)}</td><td>{x.qty}</td><td>{money(x.amount)}</td></tr>)}</tbody></Table><div className="invoice-total">Total {money(s?.total_amount)} · Paid {money(s?.paid_amount)} · Due {money(s?.due_amount)}</div></div></>}
+  function InvoiceDetail(){const s=selectedInvoice;return <><Header title={s?.invoice_no||"Invoice"}><div className="header-actions"><button className="btn secondary" onClick={()=>go("customer-detail")}>Back</button>{Number(s?.due_amount)>0&&<button className="btn primary" onClick={()=>{setPaymentCustomer(String(s.customer_id));setPaymentInvoiceId(s.id);setPaymentAmounts({});setPaymentOldDue("");go("payment")}}>Collect Payment</button>}</div></Header><div className="panel invoice"><div className="invoice-head"><div><b>{s?.customers?.customer_name}</b><div>{s?.customers?.mobile_no}</div></div><div>Date: {s?.invoice_date}</div></div><Table><thead><tr><th>Master</th><th>Item</th><th>Rate</th><th>Qty</th><th>Amount</th></tr></thead><tbody>{(s?.sale_items||[]).map(x=><tr key={x.id}><td>{x.item_master?.master_name||"-"}</td><td>{x.item_master?.item_name}</td><td>{money(x.rate)}</td><td>{x.qty}</td><td>{money(x.amount)}</td></tr>)}</tbody></Table><div className="invoice-total">Total {money(s?.total_amount)} · Paid {money(s?.paid_amount)} · Due {money(s?.due_amount)}</div></div></>}
 
   function Sales(){return <><Header title="Sales / Invoices"><button className="btn primary" onClick={()=>go("create-sale")}>＋ Create Sale</button></Header><div className="panel"><Table><thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Amount</th><th>Paid</th><th>Due</th><th>Status</th></tr></thead><tbody>{sales.map(s=><tr key={s.id}><td className="link" onClick={()=>{setSelectedInvoice(s);go("invoice-detail")}}>{s.invoice_no}</td><td>{s.invoice_date}</td><td>{s.customers?.customer_name}</td><td>{money(s.total_amount)}</td><td>{money(s.paid_amount)}</td><td>{money(s.due_amount)}</td><td><Status status={s.payment_status}/></td></tr>)}{!sales.length&&<Empty col="7" text="No sales yet."/ >}</tbody></Table></div></>}
 
-  function Payment(){const dueSales=sales.filter(s=>s.customer_id===Number(paymentCustomer)&&Number(s.due_amount)>0);return <><Header title="Make Payment"><button className="btn secondary" onClick={()=>go("dashboard")}>Cancel</button></Header><form className="panel" onSubmit={makePayment}><div className="grid-form"><label>Customer*<select value={paymentCustomer} onChange={e=>{setPaymentCustomer(e.target.value);setPaymentAmounts({})}}><option value="">Select Customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.customer_name} — {c.mobile_no||""}</option>)}</select></label><label>Payment Date<input type="date" value={paymentDate} onChange={e=>setPaymentDate(e.target.value)}/></label><label>Receiver*<select value={paymentReceiver} onChange={e=>setPaymentReceiver(e.target.value)}><option value="">Select Receiver</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name} ({money(r.current_balance)})</option>)}</select></label></div><h3>Outstanding Invoices</h3><Table><thead><tr><th>Invoice</th><th>Date</th><th>Invoice Amount</th><th>Paid</th><th>Balance</th><th>Payment</th></tr></thead><tbody>{dueSales.map(s=><tr key={s.id}><td>{s.invoice_no}</td><td>{s.invoice_date}</td><td>{money(s.total_amount)}</td><td>{money(s.paid_amount)}</td><td>{money(s.due_amount)}</td><td><input type="number" min="0" max={s.due_amount} step="0.01" value={paymentAmounts[s.id]||""} onChange={e=>setPaymentAmounts({...paymentAmounts,[s.id]:e.target.value})}/></td></tr>)}{!dueSales.length&&<Empty col="6" text={paymentCustomer?"No outstanding invoices.":"Select a customer to see due invoices."}/>}</tbody></Table><label className="note-label">Remarks<textarea value={paymentNote} onChange={e=>setPaymentNote(e.target.value)} placeholder="Optional"/></label><div className="form-actions"><button className="btn primary">Save Payment</button></div></form></>}
+  function Payment(){
+    const dueSales=sales.filter(s=>s.customer_id===Number(paymentCustomer)&&Number(s.due_amount)>0);
+    const customer=customers.find(c=>c.id===Number(paymentCustomer));
+    const shownSales=paymentInvoiceId ? dueSales.filter(s=>s.id===Number(paymentInvoiceId)) : dueSales;
+    return <><Header title="Collect Amount"><button className="btn secondary" onClick={()=>go("collections")}>Cancel</button></Header>
+      <form className="panel" onSubmit={makePayment}>
+        <div className="grid-form">
+          <label>Customer*
+            <select value={paymentCustomer} onChange={e=>{setPaymentCustomer(e.target.value);setPaymentAmounts({});setPaymentOldDue("");}}>
+              <option value="">Select Customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.customer_name} — {c.mobile_no||""}</option>)}
+            </select>
+          </label>
+          <label>Collection Date<input type="date" value={paymentDate} onChange={e=>setPaymentDate(e.target.value)}/></label>
+          <label>Receiver*
+            <select value={paymentReceiver} onChange={e=>setPaymentReceiver(e.target.value)}>
+              <option value="">Select Receiver</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name} ({money(r.current_balance)})</option>)}
+            </select>
+          </label>
+        </div>
 
-  function Collections(){return <><Header title="Collections"><button className="btn primary" onClick={()=>go("payment")}>＋ Collect Amount</button></Header><div className="panel"><Table><thead><tr><th>Collection No.</th><th>Date</th><th>Customer</th><th>Receiver</th><th>Amount</th><th>Remarks</th></tr></thead><tbody>{collections.map(c=><tr key={c.id}><td>{c.collection_no}</td><td>{c.collection_date}</td><td>{c.customers?.customer_name}</td><td>{c.receivers?.receiver_name}</td><td>{money(c.total_amount)}</td><td>{c.remarks||"-"}</td></tr>)}{!collections.length&&<Empty col="6" text="No collections yet."/ >}</tbody></Table></div></>}
+        {customer && Number(customer.opening_due)>0 && <div className="old-due-box">
+          <div><b>Old Due</b><small>Opening due before invoices: {money(customer.opening_due)}</small></div>
+          <input type="number" min="0" max={customer.opening_due} step="0.01" value={paymentOldDue}
+            onChange={e=>setPaymentOldDue(e.target.value)} placeholder="Collect old due"/>
+        </div>}
 
-  function Stock(){return <><Header title="Stock"><button className="btn secondary" onClick={()=>go("master")}>Manage Items</button></Header><div className="panel"><Table><thead><tr><th>Master</th><th>Item</th><th>Opening</th><th>Purchase</th><th>Sales</th><th>Available</th><th>Minimum</th></tr></thead><tbody>{items.map(i=>{const tx=stockTxns.filter(x=>x.item_id===i.id);const p=tx.reduce((a,x)=>a+Number(x.qty_in||0),0);const s=tx.reduce((a,x)=>a+Number(x.qty_out||0),0);return <tr key={i.id} className={stockMap[i.id]<=Number(i.minimum_stock||0)?"low-stock":""}><td>{i.master_name||"-"}</td><td>{i.item_name}</td><td>{i.opening_stock}</td><td>{p}</td><td>{s}</td><td><b>{stockMap[i.id]||0}</b></td><td>{i.minimum_stock}</td></tr>})}{!items.length&&<Empty col="7" text="No items yet."/ >}</tbody></Table></div></>}
+        <h3 className="payment-section-title">Invoice Details</h3>
+        <div className="payment-mobile-list">
+          {shownSales.map(s=><div className="payment-invoice-card" key={s.id}>
+            <div className="payment-invoice-head"><b>{s.invoice_no}</b><span>{s.invoice_date}</span></div>
+            <div className="payment-invoice-grid">
+              <div><small>Invoice</small><b>{money(s.total_amount)}</b></div>
+              <div><small>Paid</small><b>{money(s.paid_amount)}</b></div>
+              <div><small>Balance</small><b>{money(s.due_amount)}</b></div>
+              <label><small>Collect Amount</small>
+                <input type="number" inputMode="decimal" min="0" max={s.due_amount} step="0.01"
+                  value={paymentAmounts[s.id] ?? ""}
+                  onChange={e=>setPaymentAmounts(prev=>({...prev,[s.id]:e.target.value}))}
+                  placeholder="0.00"/>
+              </label>
+            </div>
+          </div>)}
+        </div>
+        {!shownSales.length && <div className="empty">{paymentCustomer ? "No outstanding invoice due." : "Select a customer to see invoice dues."}</div>}
 
-  function Procurement(){return <><Header title="Procurement"><button className="btn primary" onClick={()=>go("purchase")}>＋ Purchase</button></Header><div className="panel"><Table><thead><tr><th>Purchase</th><th>Date</th><th>Supplier</th><th>Total</th><th>Paid</th><th>Due</th><th>Status</th></tr></thead><tbody>{purchases.map(p=><tr key={p.id}><td>{p.purchase_no}</td><td>{p.purchase_date}</td><td>{p.suppliers?.supplier_name}</td><td>{money(p.total_amount)}</td><td>{money(p.paid_amount)}</td><td>{money(p.due_amount)}</td><td><Status status={p.payment_status}/></td></tr>)}{!purchases.length&&<Empty col="7" text="No purchases yet."/ >}</tbody></Table></div></>}
+        <label className="note-label">Remarks<textarea value={paymentNote} onChange={e=>setPaymentNote(e.target.value)} placeholder="Enter collection remarks"/></label>
+        <div className="form-actions"><button className="btn primary">Save Collection</button></div>
+      </form>
+    </>
+  }
 
-  function Purchase(){return <><Header title="New Purchase"><button className="btn secondary" onClick={()=>go("procurement")}>Cancel</button></Header><form className="panel" onSubmit={createPurchase}><div className="grid-form"><label>Purchase Date<input type="date" value={purchaseDate} onChange={e=>setPurchaseDate(e.target.value)}/></label><label>From / Supplier*<select value={purchaseSupplier} onChange={e=>setPurchaseSupplier(e.target.value)}><option value="">Select Supplier</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.supplier_name}</option>)}</select></label></div><div className="section-title">Items <button type="button" className="small-btn" onClick={()=>setPurchaseItems([...purchaseItems,{item_id:"",rate:0,qty:1}])}>＋ Add Item</button></div><Table><thead><tr><th>Item</th><th>Rate</th><th>Qty</th><th>Amount</th><th></th></tr></thead><tbody>{purchaseItems.map((x,i)=><tr key={i}><td><select value={x.item_id} onChange={e=>{const it=items.find(a=>a.id===Number(e.target.value));setPurchaseItems(prev=>prev.map((z,j)=>j===i?{...z,item_id:e.target.value,rate:it?.purchase_rate||0}:z))}}><option value="">Select Item</option>{items.map(a=><option key={a.id} value={a.id}>{a.item_name}</option>)}</select></td><td><input type="number" step="0.01" value={x.rate} onChange={e=>setPurchaseItems(prev=>prev.map((z,j)=>j===i?{...z,rate:e.target.value}:z))}/></td><td><input type="number" min="1" value={x.qty} onChange={e=>setPurchaseItems(prev=>prev.map((z,j)=>j===i?{...z,qty:e.target.value}:z))}/></td><td>{money(Number(x.rate)*Number(x.qty))}</td><td><button type="button" className="icon-btn" onClick={()=>setPurchaseItems(purchaseItems.length>1?purchaseItems.filter((_,j)=>j!==i):purchaseItems)}>×</button></td></tr>)}</tbody></Table><div className="sale-bottom"><div className="total">Total <b>{money(purchaseTotal)}</b></div><div className="payment-box"><label>Payment Status<select value={purchasePayment} onChange={e=>setPurchasePayment(e.target.value)}><option value="PAID">Paid</option><option value="PARTIAL">Partially Paid</option><option value="DUE">Due</option></select></label>{purchasePayment==="PARTIAL"&&<label>Paid Amount<input type="number" value={purchasePaid} onChange={e=>setPurchasePaid(e.target.value)}/></label>}{purchasePayment!=="DUE"&&<label>Paid From Receiver<select value={purchaseReceiver} onChange={e=>setPurchaseReceiver(e.target.value)}><option value="">Select Receiver</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name}</option>)}</select></label>}<div>Balance Due: <b>{money(dueForPurchase)}</b></div></div></div><div className="form-actions"><button className="btn primary">Save Purchase</button></div></form></>}
+  function Collections(){
+    const filteredCollections=collectionsDataFilter(collections,collectionDateFrom,collectionDateTo,collectionReceiverFilter);
+    function editCollection(c){
+      setEditingCollection(c);
+      setCollectionForm({collection_date:c.collection_date,receiver_id:String(c.receiver_id||""),total_amount:Number(c.total_amount||0),remarks:c.remarks||""});
+    }
+    return <><Header title="Collections"><button className="btn primary" onClick={()=>{setPaymentCustomer("");setPaymentAmounts({});setPaymentOldDue("");setPaymentInvoiceId(null);go("payment")}}>＋ Collect Amount</button></Header>
+      <div className="panel collection-filters">
+        <label>From Date<input type="date" value={collectionDateFrom} onChange={e=>setCollectionDateFrom(e.target.value)}/></label>
+        <label>To Date<input type="date" value={collectionDateTo} onChange={e=>setCollectionDateTo(e.target.value)}/></label>
+        <label>Receiver<select value={collectionReceiverFilter} onChange={e=>setCollectionReceiverFilter(e.target.value)}><option value="">All Receivers</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name}</option>)}</select></label>
+        <button type="button" className="btn secondary filter-clear" onClick={()=>{setCollectionDateFrom("");setCollectionDateTo("");setCollectionReceiverFilter("")}}>Clear</button>
+      </div>
+      <div className="panel"><Table><thead><tr><th>Collection No.</th><th>Date</th><th>Customer</th><th>Receiver</th><th>Amount</th><th>Remarks</th><th>Action</th></tr></thead>
+        <tbody>{filteredCollections.map(c=><tr key={c.id}>
+          <td>{c.collection_no}</td><td>{c.collection_date}</td><td>{c.customers?.customer_name}</td><td>{c.receivers?.receiver_name}</td><td>{money(c.total_amount)}</td><td>{c.remarks||"-"}</td>
+          <td><button className="text-btn" onClick={()=>editCollection(c)}>Edit</button></td>
+        </tr>)}{!filteredCollections.length&&<Empty col="7" text="No collections found."/>}</tbody></Table></div>
+      {editingCollection&&<CollectionEditModal/>}
+    </>
+  }
+
+
+  function collectionsDataFilter(rows,from,to,receiverId){
+    return rows.filter(c=>
+      (!from || c.collection_date>=from) &&
+      (!to || c.collection_date<=to) &&
+      (!receiverId || c.receiver_id===Number(receiverId))
+    );
+  }
+
+  function CollectionEditModal(){
+    const c=editingCollection;
+    async function saveCollectionEdit(e){
+      e.preventDefault();
+      const newAmount=Number(collectionForm.total_amount||0);
+      if(newAmount<=0) return flash("Collection amount must be greater than zero.");
+      const oldAmount=Number(c.total_amount||0);
+      const oldReceiverId=Number(c.receiver_id);
+      const newReceiverId=Number(collectionForm.receiver_id);
+      const allocations=c.collection_allocations||[];
+
+      // Restore old accounting first.
+      if(oldReceiverId && oldAmount){
+        const oldR=receivers.find(r=>r.id===oldReceiverId);
+        await supabase.from("receivers").update({current_balance:Number(oldR?.current_balance||0)-oldAmount}).eq("id",oldReceiverId);
+      }
+      for(const a of allocations){
+        const sale=sales.find(s=>s.id===Number(a.sale_id));
+        if(sale){
+          const paid=Math.max(0,Number(sale.paid_amount||0)-Number(a.amount||0));
+          const due=Math.max(0,Number(sale.total_amount||0)-paid);
+          await supabase.from("sales").update({paid_amount:paid,due_amount:due,payment_status:due===0?"PAID":paid>0?"PARTIAL":"DUE"}).eq("id",sale.id);
+        }
+      }
+      if(!allocations.length){
+        const customer=customers.find(x=>x.id===Number(c.customer_id));
+        if(customer) await supabase.from("customers").update({opening_due:Number(customer.opening_due||0)+oldAmount}).eq("id",customer.id);
+      }
+
+      // Update collection header.
+      const {error:uErr}=await supabase.from("collections").update({
+        collection_date:collectionForm.collection_date,
+        receiver_id:newReceiverId,
+        total_amount:newAmount,
+        remarks:collectionForm.remarks
+      }).eq("id",c.id);
+      if(uErr) return flash(uErr.message);
+
+      // Re-apply the edited amount to its existing allocation, or to old due.
+      if(allocations.length===1){
+        const a=allocations[0], sale=sales.find(s=>s.id===Number(a.sale_id));
+        if(!sale) return flash("Linked invoice was not found.");
+        const applied=Math.min(Number(sale.total_amount),newAmount);
+        await supabase.from("collection_allocations").update({amount:applied}).eq("id",a.id);
+        const paid=Number(sale.paid_amount||0)+applied;
+        const due=Math.max(0,Number(sale.total_amount)-paid);
+        await supabase.from("sales").update({paid_amount:paid,due_amount:due,payment_status:due===0?"PAID":"PARTIAL"}).eq("id",sale.id);
+      } else if(allocations.length===0){
+        const customer=customers.find(x=>x.id===Number(c.customer_id));
+        if(customer) await supabase.from("customers").update({opening_due:Math.max(0,Number(customer.opening_due||0)-newAmount)}).eq("id",customer.id);
+      } else {
+        // Multi-invoice collections keep their existing allocations; amount can still be edited as a header value.
+        for(const a of allocations){
+          const sale=sales.find(s=>s.id===Number(a.sale_id));
+          if(sale){
+            const paid=Number(sale.paid_amount||0)+Number(a.amount||0);
+            const due=Math.max(0,Number(sale.total_amount||0)-paid);
+            await supabase.from("sales").update({paid_amount:paid,due_amount:due,payment_status:due===0?"PAID":"PARTIAL"}).eq("id",sale.id);
+          }
+        }
+      }
+      const newR=receivers.find(r=>r.id===newReceiverId);
+      if(newR){
+        const baseBalance=Number(newR.current_balance||0)-(oldReceiverId===newReceiverId?oldAmount:0);
+        await supabase.from("receivers").update({current_balance:baseBalance+newAmount}).eq("id",newReceiverId);
+      }
+
+      setEditingCollection(null); await loadAll(); flash("Collection updated successfully.");
+    }
+    return <div className="modal-backdrop"><div className="modal">
+      <div className="modal-head"><h3>Edit Collection {c.collection_no}</h3><button type="button" onClick={()=>setEditingCollection(null)}>×</button></div>
+      <form className="grid-form" onSubmit={saveCollectionEdit}>
+        <label>Collection Date<input type="date" value={collectionForm.collection_date} onChange={e=>setCollectionForm(v=>({...v,collection_date:e.target.value}))}/></label>
+        <label>Receiver<select value={collectionForm.receiver_id} onChange={e=>setCollectionForm(v=>({...v,receiver_id:e.target.value}))}><option value="">Select Receiver</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name}</option>)}</select></label>
+        <label>Amount<input type="number" min="0.01" step="0.01" value={collectionForm.total_amount} disabled={(c.collection_allocations||[]).length>1} onChange={e=>setCollectionForm(v=>({...v,total_amount:e.target.value}))}/>{(c.collection_allocations||[]).length>1&&<small>Multiple invoices: amount is tied to the existing allocations.</small>}</label>
+        <label className="full">Remarks<textarea value={collectionForm.remarks} onChange={e=>setCollectionForm(v=>({...v,remarks:e.target.value}))}/></label>
+        <div className="modal-actions"><button type="button" className="btn secondary" onClick={()=>setEditingCollection(null)}>Cancel</button><button className="btn primary">Save Changes</button></div>
+      </form>
+    </div></div>
+  }
+
+  function Stock(){
+    const history=stockHistoryItem ? stockTxns.filter(t=>t.item_id===stockHistoryItem.id && t.transaction_type==="PURCHASE").sort((a,b)=>new Date(b.transaction_date)-new Date(a.transaction_date)) : [];
+    return <><Header title="Stock"><button className="btn primary btn-highlight" onClick={()=>{setMasterTab("items");go("master")}}>📦 Manage Items</button></Header>
+      <div className="panel"><Table><thead><tr><th>Master</th><th>Item</th><th>Opening</th><th>Purchase</th><th>Sales</th><th>Available</th><th>Minimum</th></tr></thead>
+        <tbody>{items.map(i=>{const tx=stockTxns.filter(x=>x.item_id===i.id);const pur=tx.reduce((a,x)=>a+Number(x.qty_in||0),0);const sal=tx.reduce((a,x)=>a+Number(x.qty_out||0),0);return <tr key={i.id} className={stockMap[i.id]<=Number(i.minimum_stock||0)?"low-stock":""}>
+          <td>{i.master_name||"-"}</td><td className="link" onClick={()=>setStockHistoryItem(i)}>{i.item_name}</td><td>{i.opening_stock}</td><td>{pur}</td><td>{sal}</td><td><b>{stockMap[i.id]||0}</b></td><td>{i.minimum_stock}</td>
+        </tr>})}{!items.length&&<Empty col="7" text="No items yet."/>}</tbody>
+      </Table></div>
+      {stockHistoryItem&&<div className="modal-backdrop"><div className="modal stock-history-modal">
+        <div className="modal-head"><div><h3>{stockHistoryItem.item_name} — Procurement History</h3><small>{stockHistoryItem.master_name||"Item"}</small></div><button type="button" onClick={()=>setStockHistoryItem(null)}>×</button></div>
+        <Table><thead><tr><th>Date</th><th>Purchase No.</th><th>Supplier</th><th>Rate</th><th>Qty</th><th>Amount</th></tr></thead>
+          <tbody>{history.map(t=>{const pur=purchases.find(x=>x.id===Number(t.reference_id));const pi=pur?.purchase_items?.find(x=>x.item_id===stockHistoryItem.id);return <tr key={t.id}><td>{t.transaction_date}</td><td>{pur?.purchase_no||"-"}</td><td>{pur?.suppliers?.supplier_name||"-"}</td><td>{money(t.rate)}</td><td>{t.qty_in}</td><td>{money(pi?.amount || Number(t.rate)*Number(t.qty_in))}</td></tr>})}{!history.length&&<Empty col="6" text="No procurement history for this item."/>}</tbody>
+        </Table>
+      </div></div>}
+    </>
+  }
+
+  function Procurement(){return <><Header title="Procurement"><button className="btn primary" onClick={()=>{setEditingPurchase(null);setPurchaseDate(today());setPurchaseSupplier("");setPurchaseItems([{item_id:"",rate:0,qty:1}]);setPurchasePayment("DUE");setPurchasePaid(0);setPurchaseReceiver("");go("purchase")}}>＋ Purchase</button></Header><div className="panel"><Table><thead><tr><th>Purchase</th><th>Date</th><th>Supplier</th><th>Total</th><th>Paid</th><th>Due</th><th>Status</th><th>Action</th></tr></thead><tbody>{purchases.map(p=><tr key={p.id}><td className="link" onClick={()=>{setEditingPurchase(p.id);setPurchaseDate(p.purchase_date);setPurchaseSupplier(String(p.supplier_id));setPurchaseItems((p.purchase_items||[]).map(x=>({item_id:String(x.item_id),rate:x.rate,qty:x.qty})).length?(p.purchase_items||[]).map(x=>({item_id:String(x.item_id),rate:x.rate,qty:x.qty})):[{item_id:"",rate:0,qty:1}]);setPurchasePayment(p.payment_status);setPurchasePaid(p.paid_amount);setPurchaseReceiver(p.receiver_id?String(p.receiver_id):"");go("purchase")}}>{p.purchase_no}</td><td>{p.purchase_date}</td><td>{p.suppliers?.supplier_name}</td><td>{money(p.total_amount)}</td><td>{money(p.paid_amount)}</td><td>{money(p.due_amount)}</td><td><Status status={p.payment_status}/></td><td><button className="text-btn" onClick={()=>{setEditingPurchase(p.id);setPurchaseDate(p.purchase_date);setPurchaseSupplier(String(p.supplier_id));setPurchaseItems((p.purchase_items||[]).map(x=>({item_id:String(x.item_id),rate:x.rate,qty:x.qty})));setPurchasePayment(p.payment_status);setPurchasePaid(p.paid_amount);setPurchaseReceiver(p.receiver_id?String(p.receiver_id):"");go("purchase")}}>Edit</button></td></tr>)}{!purchases.length&&<Empty col="8" text="No purchases yet."/>}</tbody></Table></div></>}
+
+  function Purchase(){return <><Header title={editingPurchase?"Edit Purchase":"New Purchase"}><button className="btn secondary" onClick={()=>{setEditingPurchase(null);go("procurement")}}>Cancel</button></Header><form className="panel" onSubmit={createPurchase}><div className="grid-form"><label>Purchase Date<input type="date" value={purchaseDate} onChange={e=>setPurchaseDate(e.target.value)}/></label><label>From / Supplier*<select value={purchaseSupplier} onChange={e=>setPurchaseSupplier(e.target.value)}><option value="">Select Supplier</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.supplier_name}</option>)}</select></label></div><div className="section-title">Items <button type="button" className="small-btn" onClick={()=>setPurchaseItems([...purchaseItems,{item_id:"",rate:0,qty:1}])}>＋ Add Item</button></div><Table><thead><tr><th>Item</th><th>Rate</th><th>Qty</th><th>Amount</th><th></th></tr></thead><tbody>{purchaseItems.map((x,i)=><tr key={i}><td><select value={x.item_id} onChange={e=>{const it=items.find(a=>a.id===Number(e.target.value));setPurchaseItems(prev=>prev.map((z,j)=>j===i?{...z,item_id:e.target.value,rate:it?.purchase_rate||0}:z))}}><option value="">Select Item</option>{items.map(a=><option key={a.id} value={a.id}>{a.item_name}</option>)}</select></td><td><input type="number" step="0.01" value={x.rate} onChange={e=>setPurchaseItems(prev=>prev.map((z,j)=>j===i?{...z,rate:e.target.value}:z))}/></td><td><input type="number" min="1" value={x.qty} onChange={e=>setPurchaseItems(prev=>prev.map((z,j)=>j===i?{...z,qty:e.target.value}:z))}/></td><td>{money(Number(x.rate)*Number(x.qty))}</td><td><button type="button" className="icon-btn" onClick={()=>setPurchaseItems(purchaseItems.length>1?purchaseItems.filter((_,j)=>j!==i):purchaseItems)}>×</button></td></tr>)}</tbody></Table><div className="sale-bottom"><div className="total">Total <b>{money(purchaseTotal)}</b></div><div className="payment-box"><label>Payment Status<select value={purchasePayment} onChange={e=>setPurchasePayment(e.target.value)}><option value="PAID">Paid</option><option value="PARTIAL">Partially Paid</option><option value="DUE">Due</option></select></label>{purchasePayment==="PARTIAL"&&<label>Paid Amount<input type="number" value={purchasePaid} onChange={e=>setPurchasePaid(e.target.value)}/></label>}{purchasePayment!=="DUE"&&<label>Paid From Receiver<select value={purchaseReceiver} onChange={e=>setPurchaseReceiver(e.target.value)}><option value="">Select Receiver</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name}</option>)}</select></label>}<div>Balance Due: <b>{money(dueForPurchase)}</b></div></div></div><div className="form-actions"><button className="btn primary">Save Purchase</button></div></form></>}
 
   function Master(){
     const masterOptions = [
