@@ -60,6 +60,7 @@ export default function Home() {
   const [purchasePayment, setPurchasePayment] = useState("DUE");
   const [purchasePaid, setPurchasePaid] = useState(0);
   const [purchaseReceiver, setPurchaseReceiver] = useState("");
+  const [masterTab, setMasterTab] = useState("customers");
 
   useEffect(() => { loadAll(); }, []);
 
@@ -491,8 +492,112 @@ export default function Home() {
 
   function Purchase(){return <><Header title="New Purchase"><button className="btn secondary" onClick={()=>go("procurement")}>Cancel</button></Header><form className="panel" onSubmit={createPurchase}><div className="grid-form"><label>Purchase Date<input type="date" value={purchaseDate} onChange={e=>setPurchaseDate(e.target.value)}/></label><label>From / Supplier*<select value={purchaseSupplier} onChange={e=>setPurchaseSupplier(e.target.value)}><option value="">Select Supplier</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.supplier_name}</option>)}</select></label></div><div className="section-title">Items <button type="button" className="small-btn" onClick={()=>setPurchaseItems([...purchaseItems,{item_id:"",rate:0,qty:1}])}>＋ Add Item</button></div><Table><thead><tr><th>Item</th><th>Rate</th><th>Qty</th><th>Amount</th><th></th></tr></thead><tbody>{purchaseItems.map((x,i)=><tr key={i}><td><select value={x.item_id} onChange={e=>{const it=items.find(a=>a.id===Number(e.target.value));setPurchaseItems(prev=>prev.map((z,j)=>j===i?{...z,item_id:e.target.value,rate:it?.purchase_rate||0}:z))}}><option value="">Select Item</option>{items.map(a=><option key={a.id} value={a.id}>{a.item_name}</option>)}</select></td><td><input type="number" step="0.01" value={x.rate} onChange={e=>setPurchaseItems(prev=>prev.map((z,j)=>j===i?{...z,rate:e.target.value}:z))}/></td><td><input type="number" min="1" value={x.qty} onChange={e=>setPurchaseItems(prev=>prev.map((z,j)=>j===i?{...z,qty:e.target.value}:z))}/></td><td>{money(Number(x.rate)*Number(x.qty))}</td><td><button type="button" className="icon-btn" onClick={()=>setPurchaseItems(purchaseItems.length>1?purchaseItems.filter((_,j)=>j!==i):purchaseItems)}>×</button></td></tr>)}</tbody></Table><div className="sale-bottom"><div className="total">Total <b>{money(purchaseTotal)}</b></div><div className="payment-box"><label>Payment Status<select value={purchasePayment} onChange={e=>setPurchasePayment(e.target.value)}><option value="PAID">Paid</option><option value="PARTIAL">Partially Paid</option><option value="DUE">Due</option></select></label>{purchasePayment==="PARTIAL"&&<label>Paid Amount<input type="number" value={purchasePaid} onChange={e=>setPurchasePaid(e.target.value)}/></label>}{purchasePayment!=="DUE"&&<label>Paid From Receiver<select value={purchaseReceiver} onChange={e=>setPurchaseReceiver(e.target.value)}><option value="">Select Receiver</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name}</option>)}</select></label>}<div>Balance Due: <b>{money(dueForPurchase)}</b></div></div></div><div className="form-actions"><button className="btn primary">Save Purchase</button></div></form></>}
 
-  function Master(){return <><Header title="Master Data"/><div className="master-grid"><MasterCard title="Customer Master" count={customers.length} button="＋ Add Customer" onClick={()=>{setEditingCustomer(null);setCustomerForm({...emptyCustomer});setShowCustomerForm(true)}}/><MasterCard title="Item Master" count={items.length} button="＋ Add Item" onClick={()=>{setEditingItem(null);setItemForm(emptyItem);setShowItemForm(true)}}/><MasterCard title="Receiver Master" count={receivers.length} button="＋ Add Receiver" onClick={()=>{setEditingReceiver(null);setReceiverForm(emptyReceiver);setShowReceiverForm(true)}}/><MasterCard title="Supplier Master" count={suppliers.length} button="＋ Add Supplier" onClick={()=>{setEditingSupplier(null);setSupplierForm(emptySupplier);setShowSupplierForm(true)}}/></div><div className="panel"><h3>Customers</h3><Table><thead><tr><th>Name</th><th>Mobile</th><th>Opening Due</th><th>Action</th></tr></thead><tbody>{customers.slice(0,10).map(c=><tr key={c.id}><td>{c.customer_name}</td><td>{c.mobile_no||"-"}</td><td>{money(c.opening_due)}</td><td><button className="text-btn" onClick={()=>{setEditingCustomer(c.id);setCustomerForm({customer_name:c.customer_name,mobile_no:c.mobile_no||"",address:c.address||"",opening_due:c.opening_due});setShowCustomerForm(true)}}>Edit</button></td></tr>)}{!customers.length&&<Empty col="4" text="No customers yet."/ >}</tbody></Table></div>{showCustomerForm&&<CustomerForm/>}{showItemForm&&<ItemForm/>}{showReceiverForm&&<ReceiverForm/>}{showSupplierForm&&<SupplierForm/>}</>}
-  function MasterCard({title,count,button,onClick}){return <div className="master-card"><h3>{title}</h3><strong>{count}</strong><span>Records</span><button className="btn primary" onClick={onClick}>{button}</button></div>}
+  function Master(){
+    const masterOptions = [
+      {id:"customers", label:"Customers", icon:"👥", count:customers.length},
+      {id:"items", label:"Items", icon:"📦", count:items.length},
+      {id:"receivers", label:"Receivers", icon:"💰", count:receivers.length},
+      {id:"suppliers", label:"Suppliers", icon:"🏢", count:suppliers.length}
+    ];
+
+    return <>
+      <Header title="Master Data"/>
+      <div className="master-layout">
+        <aside className="master-sidebar">
+          <div className="master-sidebar-title">Masters</div>
+          <div className="master-sidebar-list">
+            {masterOptions.map(m =>
+              <button key={m.id} type="button"
+                className={masterTab===m.id ? "master-side-btn active" : "master-side-btn"}
+                onClick={()=>setMasterTab(m.id)}>
+                <span className="master-side-icon">{m.icon}</span>
+                <span className="master-side-label">{m.label}</span>
+                <span className="master-side-count">{m.count}</span>
+              </button>
+            )}
+          </div>
+        </aside>
+
+        <main className="master-content">
+      {masterTab==="customers" && <div className="panel">
+        <div className="toolbar master-toolbar">
+          <div><h3>Customers</h3><small>Customer records</small></div>
+          <div className="master-toolbar-actions"><input placeholder="Search name or mobile" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)}/><button className="small-btn primary" onClick={()=>{setEditingCustomer(null);setCustomerForm({...emptyCustomer});setShowCustomerForm(true)}}>＋ Add Customer</button></div>
+        </div>
+        <Table><thead><tr><th>Name</th><th>Mobile</th><th>Opening Due</th><th>Action</th></tr></thead>
+          <tbody>
+            {customers.filter(c=>`${c.customer_name} ${c.mobile_no||""}`.toLowerCase().includes(customerSearch.toLowerCase())).map(c=>
+              <tr key={c.id}>
+                <td>{c.customer_name}</td><td>{c.mobile_no||"-"}</td><td>{money(c.opening_due)}</td>
+                <td><button className="text-btn" onClick={()=>{setEditingCustomer(c.id);setCustomerForm({customer_name:c.customer_name,mobile_no:c.mobile_no||"",address:c.address||"",opening_due:c.opening_due});setShowCustomerForm(true)}}>Edit</button></td>
+              </tr>
+            )}
+            {!customers.length&&<Empty col="4" text="No customers yet."/>}
+          </tbody>
+        </Table>
+      </div>}
+
+      {masterTab==="items" && <div className="panel">
+        <div className="toolbar master-toolbar">
+          <div><h3>Items</h3><small>Item records and stock</small></div>
+          <div className="master-toolbar-actions"><input placeholder="Search item or master/category" value={itemSearch} onChange={e=>setItemSearch(e.target.value)}/><button className="small-btn primary" onClick={()=>{setEditingItem(null);setItemForm({...emptyItem});setShowItemForm(true)}}>＋ Add Item</button></div>
+        </div>
+        <Table><thead><tr><th>Master / Category</th><th>Item Name</th><th>Sale Rate</th><th>Purchase Rate</th><th>Stock</th><th>Action</th></tr></thead>
+          <tbody>
+            {items.filter(it=>`${it.master_name||""} ${it.item_name||""}`.toLowerCase().includes(itemSearch.toLowerCase())).map(it=>
+              <tr key={it.id}>
+                <td>{it.master_name||"-"}</td><td>{it.item_name}</td><td>{money(it.sale_rate)}</td><td>{money(it.purchase_rate)}</td><td>{Number(stockMap[it.id]||0).toLocaleString("en-IN")}</td>
+                <td>
+                  <button className="text-btn" onClick={()=>{setEditingItem(it.id);setItemForm({master_name:it.master_name||"",item_name:it.item_name||"",sale_rate:it.sale_rate||0,purchase_rate:it.purchase_rate||0,opening_stock:it.opening_stock||0,minimum_stock:it.minimum_stock||0});setShowItemForm(true)}}>Edit</button>
+                  <button className="text-btn danger" onClick={()=>deleteItem(it.id)}>Delete</button>
+                </td>
+              </tr>
+            )}
+            {!items.length&&<Empty col="6" text="No items yet."/>}
+          </tbody>
+        </Table>
+      </div>}
+
+      {masterTab==="receivers" && <div className="panel">
+        <div className="toolbar master-toolbar">
+          <div><h3>Receivers</h3><small>Cash and bank receivers</small></div>
+          <button className="small-btn primary" onClick={()=>{setEditingReceiver(null);setReceiverForm({...emptyReceiver});setShowReceiverForm(true)}}>＋ Add Receiver</button>
+        </div>
+        <Table><thead><tr><th>Name</th><th>Type</th><th>Opening Balance</th><th>Current Balance</th><th>Action</th></tr></thead>
+          <tbody>
+            {receivers.map(r=><tr key={r.id}>
+              <td>{r.receiver_name}</td><td>{r.receiver_type}</td><td>{money(r.opening_balance)}</td><td>{money(r.current_balance)}</td>
+              <td><button className="text-btn" onClick={()=>{setEditingReceiver(r.id);setReceiverForm({receiver_name:r.receiver_name,receiver_type:r.receiver_type||"Cash",opening_balance:r.opening_balance||0,current_balance:r.current_balance||0});setShowReceiverForm(true)}}>Edit</button></td>
+            </tr>)}
+            {!receivers.length&&<Empty col="5" text="No receivers yet."/>}
+          </tbody>
+        </Table>
+      </div>}
+
+      {masterTab==="suppliers" && <div className="panel">
+        <div className="toolbar master-toolbar">
+          <div><h3>Suppliers</h3><small>Supplier records</small></div>
+          <div className="master-toolbar-actions"><input placeholder="Search supplier or mobile" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)}/><button className="small-btn primary" onClick={()=>{setEditingSupplier(null);setSupplierForm({...emptySupplier});setShowSupplierForm(true)}}>＋ Add Supplier</button></div>
+        </div>
+        <Table><thead><tr><th>Name</th><th>Mobile</th><th>Opening Due</th><th>Action</th></tr></thead>
+          <tbody>
+            {suppliers.filter(s=>`${s.supplier_name} ${s.mobile_no||""}`.toLowerCase().includes(customerSearch.toLowerCase())).map(s=><tr key={s.id}>
+              <td>{s.supplier_name}</td><td>{s.mobile_no||"-"}</td><td>{money(s.opening_due)}</td>
+              <td><button className="text-btn" onClick={()=>{setEditingSupplier(s.id);setSupplierForm({supplier_name:s.supplier_name,mobile_no:s.mobile_no||"",address:s.address||"",opening_due:s.opening_due||0});setShowSupplierForm(true)}}>Edit</button></td>
+            </tr>)}
+            {!suppliers.length&&<Empty col="4" text="No suppliers yet."/>}
+          </tbody>
+        </Table>
+      </div>}
+
+        </main>
+      </div>
+
+      {showCustomerForm&&<CustomerForm/>}{showItemForm&&<ItemForm/>}{showReceiverForm&&<ReceiverForm/>}{showSupplierForm&&<SupplierForm/>}
+    </>
+  }
+
+  function MasterCard({title,count,button,onClick,onAdd,active}){return <div className={active?"master-card active":"master-card"} onClick={onClick} role="button" tabIndex={0} onKeyDown={e=>{if(e.key==="Enter"||e.key===" ")onClick()}}><h3>{title}</h3><strong>{count}</strong><span>Records</span><button type="button" className="btn primary" onClick={e=>{e.stopPropagation();onAdd()}}>{button}</button></div>}
 
   function Reports(){const dueRows=sales.filter(s=>Number(s.due_amount)>0);return <><Header title="Reports"/><div className="report-grid"><div className="report-card"><h3>Invoice Report</h3><p>{sales.length} invoices · {money(dashboardSales)}</p></div><div className="report-card"><h3>Stock Report</h3><p>{items.length} items · {dashboardStock} units</p></div><div className="report-card"><h3>Collection Report</h3><p>{collections.length} collections · {money(dashboardCollections)}</p></div><div className="report-card"><h3>Due Report</h3><p>{dueRows.length} invoices · {money(dueRows.reduce((a,x)=>a+Number(x.due_amount),0))}</p></div></div><div className="panel"><h3>Due Report</h3><Table><thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Amount</th><th>Due</th><th>Age</th></tr></thead><tbody>{dueRows.map(s=>{const age=Math.max(0,Math.floor((Date.now()-new Date(s.invoice_date))/86400000));return <tr key={s.id}><td>{s.invoice_no}</td><td>{s.customers?.customer_name}</td><td>{s.invoice_date}</td><td>{money(s.total_amount)}</td><td>{money(s.due_amount)}</td><td>{age} days</td></tr>})}{!dueRows.length&&<Empty col="6" text="No dues."/ >}</tbody></Table></div></>}
 
