@@ -61,6 +61,7 @@ export default function Home() {
   const [purchasePaid, setPurchasePaid] = useState(0);
   const [purchaseReceiver, setPurchaseReceiver] = useState("");
   const [masterTab, setMasterTab] = useState("customers");
+  const [reportTab, setReportTab] = useState("invoices");
 
   useEffect(() => { loadAll(); }, []);
 
@@ -476,7 +477,7 @@ export default function Home() {
 
   function Customers() {return <><Header title="Customers"><button className="btn primary" onClick={()=>{setEditingCustomer(null);setCustomerForm({...emptyCustomer});setShowCustomerForm(true)}}>＋ Add Customer</button></Header><div className="panel"><div className="toolbar"><input placeholder="Search name or mobile" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)}/></div><Table><thead><tr><th>Customer</th><th>Mobile</th><th>Address</th><th>Opening Due</th><th>Current Due</th><th>Action</th></tr></thead><tbody>{filteredCustomers.map(c=><tr key={c.id}><td className="link" onClick={()=>{setSelectedCustomer(c);go("customer-detail")}}>{c.customer_name}</td><td>{c.mobile_no||"-"}</td><td>{c.address||"-"}</td><td>{money(c.opening_due)}</td><td>{money(customerDue(c.id))}</td><td><button className="text-btn" onClick={()=>{setEditingCustomer(c.id);setCustomerForm({customer_name:c.customer_name,mobile_no:c.mobile_no||"",address:c.address||"",opening_due:c.opening_due});setShowCustomerForm(true)}}>Edit</button><button className="text-btn danger" onClick={()=>deleteCustomer(c.id)}>Delete</button></td></tr>)}{!filteredCustomers.length&&<Empty col="6" text="No customers found."/ >}</tbody></Table></div>{showCustomerForm&&<CustomerForm/>}</>}
 
-  function CustomerDetail(){const c=selectedCustomer;const list=sales.filter(s=>s.customer_id===c?.id);return <><Header title={c?c.customer_name:"Customer"}><button className="btn secondary" onClick={()=>go("customers")}>Back</button><button className="btn primary" onClick={()=>go("payment")}>＋ Make Payment</button></Header><div className="cards"><Card t="Mobile" v={c?.mobile_no||"-"}/><Card t="Total Due" v={money(customerDue(c?.id))}/><Card t="Invoices" v={list.length}/><Card t="30+ Days Due" v={money(list.filter(s=>Math.floor((Date.now()-new Date(s.invoice_date))/86400000)>30).reduce((a,x)=>a+Number(x.due_amount||0),0))}/></div><div className="panel"><h3>All Invoices</h3><Table><thead><tr><th>Invoice</th><th>Date</th><th>Amount</th><th>Paid</th><th>Due</th><th>Status</th></tr></thead><tbody>{list.map(s=><tr key={s.id}><td className="link" onClick={()=>{setSelectedInvoice(s);go("invoice-detail")}}>{s.invoice_no}</td><td>{s.invoice_date}</td><td>{money(s.total_amount)}</td><td>{money(s.paid_amount)}</td><td>{money(s.due_amount)}</td><td><Status status={s.payment_status}/></td></tr>)}{!list.length&&<Empty col="6" text="No invoices for this customer."/ >}</tbody></Table></div></>}
+  function CustomerDetail(){const c=selectedCustomer;const list=sales.filter(s=>s.customer_id===c?.id);return <><Header title={c?c.customer_name:"Customer"}><button className="btn secondary" onClick={()=>go("customers")}>Back</button><button className="btn primary" onClick={()=>go("payment")}>＋ Collect Amount</button></Header><div className="cards"><Card t="Mobile" v={c?.mobile_no||"-"}/><Card t="Total Due" v={money(customerDue(c?.id))}/><Card t="Invoices" v={list.length}/><Card t="30+ Days Due" v={money(list.filter(s=>Math.floor((Date.now()-new Date(s.invoice_date))/86400000)>30).reduce((a,x)=>a+Number(x.due_amount||0),0))}/></div><div className="panel"><h3>All Invoices</h3><Table><thead><tr><th>Invoice</th><th>Date</th><th>Amount</th><th>Paid</th><th>Due</th><th>Status</th></tr></thead><tbody>{list.map(s=><tr key={s.id}><td className="link" onClick={()=>{setSelectedInvoice(s);go("invoice-detail")}}>{s.invoice_no}</td><td>{s.invoice_date}</td><td>{money(s.total_amount)}</td><td>{money(s.paid_amount)}</td><td>{money(s.due_amount)}</td><td><Status status={s.payment_status}/></td></tr>)}{!list.length&&<Empty col="6" text="No invoices for this customer."/ >}</tbody></Table></div></>}
 
   function InvoiceDetail(){const s=selectedInvoice;return <><Header title={s?.invoice_no||"Invoice"}><button className="btn secondary" onClick={()=>go("customer-detail")}>Back</button></Header><div className="panel invoice"><div className="invoice-head"><div><b>{s?.customers?.customer_name}</b><div>{s?.customers?.mobile_no}</div></div><div>Date: {s?.invoice_date}</div></div><Table><thead><tr><th>Master</th><th>Item</th><th>Rate</th><th>Qty</th><th>Amount</th></tr></thead><tbody>{(s?.sale_items||[]).map(x=><tr key={x.id}><td>{x.item_master?.master_name||"-"}</td><td>{x.item_master?.item_name}</td><td>{money(x.rate)}</td><td>{x.qty}</td><td>{money(x.amount)}</td></tr>)}</tbody></Table><div className="invoice-total">Total {money(s?.total_amount)} · Paid {money(s?.paid_amount)} · Due {money(s?.due_amount)}</div></div></>}
 
@@ -484,7 +485,7 @@ export default function Home() {
 
   function Payment(){const dueSales=sales.filter(s=>s.customer_id===Number(paymentCustomer)&&Number(s.due_amount)>0);return <><Header title="Make Payment"><button className="btn secondary" onClick={()=>go("dashboard")}>Cancel</button></Header><form className="panel" onSubmit={makePayment}><div className="grid-form"><label>Customer*<select value={paymentCustomer} onChange={e=>{setPaymentCustomer(e.target.value);setPaymentAmounts({})}}><option value="">Select Customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.customer_name} — {c.mobile_no||""}</option>)}</select></label><label>Payment Date<input type="date" value={paymentDate} onChange={e=>setPaymentDate(e.target.value)}/></label><label>Receiver*<select value={paymentReceiver} onChange={e=>setPaymentReceiver(e.target.value)}><option value="">Select Receiver</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name} ({money(r.current_balance)})</option>)}</select></label></div><h3>Outstanding Invoices</h3><Table><thead><tr><th>Invoice</th><th>Date</th><th>Invoice Amount</th><th>Paid</th><th>Balance</th><th>Payment</th></tr></thead><tbody>{dueSales.map(s=><tr key={s.id}><td>{s.invoice_no}</td><td>{s.invoice_date}</td><td>{money(s.total_amount)}</td><td>{money(s.paid_amount)}</td><td>{money(s.due_amount)}</td><td><input type="number" min="0" max={s.due_amount} step="0.01" value={paymentAmounts[s.id]||""} onChange={e=>setPaymentAmounts({...paymentAmounts,[s.id]:e.target.value})}/></td></tr>)}{!dueSales.length&&<Empty col="6" text={paymentCustomer?"No outstanding invoices.":"Select a customer to see due invoices."}/>}</tbody></Table><label className="note-label">Remarks<textarea value={paymentNote} onChange={e=>setPaymentNote(e.target.value)} placeholder="Optional"/></label><div className="form-actions"><button className="btn primary">Save Payment</button></div></form></>}
 
-  function Collections(){return <><Header title="Collections"><button className="btn primary" onClick={()=>go("payment")}>＋ Make Payment</button></Header><div className="panel"><Table><thead><tr><th>Collection No.</th><th>Date</th><th>Customer</th><th>Receiver</th><th>Amount</th><th>Remarks</th></tr></thead><tbody>{collections.map(c=><tr key={c.id}><td>{c.collection_no}</td><td>{c.collection_date}</td><td>{c.customers?.customer_name}</td><td>{c.receivers?.receiver_name}</td><td>{money(c.total_amount)}</td><td>{c.remarks||"-"}</td></tr>)}{!collections.length&&<Empty col="6" text="No collections yet."/ >}</tbody></Table></div></>}
+  function Collections(){return <><Header title="Collections"><button className="btn primary" onClick={()=>go("payment")}>＋ Collect Amount</button></Header><div className="panel"><Table><thead><tr><th>Collection No.</th><th>Date</th><th>Customer</th><th>Receiver</th><th>Amount</th><th>Remarks</th></tr></thead><tbody>{collections.map(c=><tr key={c.id}><td>{c.collection_no}</td><td>{c.collection_date}</td><td>{c.customers?.customer_name}</td><td>{c.receivers?.receiver_name}</td><td>{money(c.total_amount)}</td><td>{c.remarks||"-"}</td></tr>)}{!collections.length&&<Empty col="6" text="No collections yet."/ >}</tbody></Table></div></>}
 
   function Stock(){return <><Header title="Stock"><button className="btn secondary" onClick={()=>go("master")}>Manage Items</button></Header><div className="panel"><Table><thead><tr><th>Master</th><th>Item</th><th>Opening</th><th>Purchase</th><th>Sales</th><th>Available</th><th>Minimum</th></tr></thead><tbody>{items.map(i=>{const tx=stockTxns.filter(x=>x.item_id===i.id);const p=tx.reduce((a,x)=>a+Number(x.qty_in||0),0);const s=tx.reduce((a,x)=>a+Number(x.qty_out||0),0);return <tr key={i.id} className={stockMap[i.id]<=Number(i.minimum_stock||0)?"low-stock":""}><td>{i.master_name||"-"}</td><td>{i.item_name}</td><td>{i.opening_stock}</td><td>{p}</td><td>{s}</td><td><b>{stockMap[i.id]||0}</b></td><td>{i.minimum_stock}</td></tr>})}{!items.length&&<Empty col="7" text="No items yet."/ >}</tbody></Table></div></>}
 
@@ -593,14 +594,94 @@ export default function Home() {
         </main>
       </div>
 
-      {showCustomerForm&&<CustomerForm/>}{showItemForm&&<ItemForm/>}{showReceiverForm&&<ReceiverForm/>}{showSupplierForm&&<SupplierForm/>}
+      {showCustomerForm&&CustomerForm()}{showItemForm&&ItemForm()}{showReceiverForm&&ReceiverForm()}{showSupplierForm&&SupplierForm()}
     </>
   }
 
   function MasterCard({title,count,button,onClick,onAdd,active}){return <div className={active?"master-card active":"master-card"} onClick={onClick} role="button" tabIndex={0} onKeyDown={e=>{if(e.key==="Enter"||e.key===" ")onClick()}}><h3>{title}</h3><strong>{count}</strong><span>Records</span><button type="button" className="btn primary" onClick={e=>{e.stopPropagation();onAdd()}}>{button}</button></div>}
 
-  function Reports(){const dueRows=sales.filter(s=>Number(s.due_amount)>0);return <><Header title="Reports"/><div className="report-grid"><div className="report-card"><h3>Invoice Report</h3><p>{sales.length} invoices · {money(dashboardSales)}</p></div><div className="report-card"><h3>Stock Report</h3><p>{items.length} items · {dashboardStock} units</p></div><div className="report-card"><h3>Collection Report</h3><p>{collections.length} collections · {money(dashboardCollections)}</p></div><div className="report-card"><h3>Due Report</h3><p>{dueRows.length} invoices · {money(dueRows.reduce((a,x)=>a+Number(x.due_amount),0))}</p></div></div><div className="panel"><h3>Due Report</h3><Table><thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Amount</th><th>Due</th><th>Age</th></tr></thead><tbody>{dueRows.map(s=>{const age=Math.max(0,Math.floor((Date.now()-new Date(s.invoice_date))/86400000));return <tr key={s.id}><td>{s.invoice_no}</td><td>{s.customers?.customer_name}</td><td>{s.invoice_date}</td><td>{money(s.total_amount)}</td><td>{money(s.due_amount)}</td><td>{age} days</td></tr>})}{!dueRows.length&&<Empty col="6" text="No dues."/ >}</tbody></Table></div></>}
+  function Reports(){
+    const dueRows=sales.filter(s=>Number(s.due_amount)>0);
+    const reportOptions=[
+      {id:"invoices",label:"Invoice Report",icon:"🧾",count:sales.length},
+      {id:"stock",label:"Stock Report",icon:"📦",count:items.length},
+      {id:"collections",label:"Collection Report",icon:"💰",count:collections.length},
+      {id:"dues",label:"Due Report",icon:"⚠️",count:dueRows.length}
+    ];
+
+    return <>
+      <Header title="Reports"/>
+      <div className="reports-layout">
+        <aside className="reports-sidebar">
+          <div className="reports-sidebar-title">Reports</div>
+          <div className="reports-sidebar-list">
+            {reportOptions.map(r=>
+              <button key={r.id} type="button"
+                className={reportTab===r.id ? "report-side-btn active" : "report-side-btn"}
+                onClick={()=>setReportTab(r.id)}>
+                <span className="report-side-icon">{r.icon}</span>
+                <span className="report-side-label">{r.label}</span>
+                <span className="report-side-count">{r.count}</span>
+              </button>
+            )}
+          </div>
+        </aside>
+
+        <main className="reports-content">
+          {reportTab==="invoices" && <div className="panel">
+            <div className="report-heading"><div><h3>Invoice Report</h3><small>{sales.length} invoices · {money(dashboardSales)}</small></div></div>
+            <Table><thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Amount</th><th>Paid</th><th>Due</th><th>Status</th></tr></thead>
+              <tbody>{sales.map(s=>
+                <tr key={s.id}>
+                  <td className="link" onClick={()=>{setSelectedInvoice(s);go("invoice-detail")}}>{s.invoice_no}</td>
+                  <td>{s.customers?.customer_name||"-"}</td><td>{s.invoice_date}</td>
+                  <td>{money(s.total_amount)}</td><td>{money(s.paid_amount)}</td><td>{money(s.due_amount)}</td>
+                  <td><Status value={s.status}/></td>
+                </tr>
+              )}{!sales.length&&<Empty col="7" text="No invoices yet."/>}</tbody>
+            </Table>
+          </div>}
+
+          {reportTab==="stock" && <div className="panel">
+            <div className="report-heading"><div><h3>Stock Report</h3><small>{items.length} items · {dashboardStock.toLocaleString("en-IN")} units</small></div></div>
+            <Table><thead><tr><th>Master / Category</th><th>Item</th><th>Sale Rate</th><th>Purchase Rate</th><th>Available Stock</th><th>Minimum Stock</th><th>Status</th></tr></thead>
+              <tbody>{items.map(it=>{
+                const qty=Number(stockMap[it.id]||0), min=Number(it.minimum_stock||0);
+                return <tr key={it.id} className={qty<=min?"low-stock":""}>
+                  <td>{it.master_name||"-"}</td><td>{it.item_name}</td><td>{money(it.sale_rate)}</td><td>{money(it.purchase_rate)}</td>
+                  <td>{qty.toLocaleString("en-IN")}</td><td>{min.toLocaleString("en-IN")}</td>
+                  <td>{qty<=min?<span className="status due">Low Stock</span>:<span className="status paid">Available</span>}</td>
+                </tr>
+              })}{!items.length&&<Empty col="7" text="No items yet."/>}</tbody>
+            </Table>
+          </div>}
+
+          {reportTab==="collections" && <div className="panel">
+            <div className="report-heading"><div><h3>Collection Report</h3><small>{collections.length} collections · {money(dashboardCollections)}</small></div></div>
+            <Table><thead><tr><th>Collection No.</th><th>Date</th><th>Customer</th><th>Receiver</th><th>Amount</th><th>Note</th></tr></thead>
+              <tbody>{collections.map(c=>
+                <tr key={c.id}>
+                  <td>{c.collection_no||"-"}</td><td>{c.collection_date}</td><td>{c.customers?.customer_name||"-"}</td>
+                  <td>{c.receivers?.receiver_name||"-"}</td><td>{money(c.amount)}</td><td>{c.note||"-"}</td>
+                </tr>
+              )}{!collections.length&&<Empty col="6" text="No collections yet."/>}</tbody>
+            </Table>
+          </div>}
+
+          {reportTab==="dues" && <div className="panel">
+            <div className="report-heading"><div><h3>Due Report</h3><small>{dueRows.length} invoices · {money(dueRows.reduce((a,x)=>a+Number(x.due_amount),0))}</small></div></div>
+            <Table><thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Amount</th><th>Due</th><th>Age</th></tr></thead>
+              <tbody>{dueRows.map(s=>{
+                const age=Math.max(0,Math.floor((Date.now()-new Date(s.invoice_date))/86400000));
+                return <tr key={s.id}><td className="link" onClick={()=>{setSelectedInvoice(s);go("invoice-detail")}}>{s.invoice_no}</td><td>{s.customers?.customer_name||"-"}</td><td>{s.invoice_date}</td><td>{money(s.total_amount)}</td><td>{money(s.due_amount)}</td><td>{age} days</td></tr>
+              })}{!dueRows.length&&<Empty col="6" text="No dues."/>}</tbody>
+            </Table>
+          </div>}
+        </main>
+      </div>
+    </>
+  }
 
   if (loading) return <div className="loading">Loading B Reddy Sales…</div>;
-  return <div className="app"><Sidebar/><main className="main">{notice&&<div className="notice">{notice}</div>}{screen==="dashboard"&&<Dashboard/>}{screen==="create-sale"&&<CreateSale/>}{screen==="sales"&&<Sales/>}{screen==="customers"&&<Customers/>}{screen==="customer-detail"&&<CustomerDetail/>}{screen==="invoice-detail"&&<InvoiceDetail/>}{screen==="collections"&&<Collections/>}{screen==="payment"&&<Payment/>}{screen==="stock"&&<Stock/>}{screen==="procurement"&&<Procurement/>}{screen==="purchase"&&<Purchase/>}{screen==="reports"&&<Reports/>}{screen==="master"&&<Master/>}</main></div>;
+  return <div className="app"><Sidebar/><main className="main">{notice&&<div className="notice">{notice}</div>}{screen==="dashboard"&&Dashboard()}{screen==="create-sale"&&CreateSale()}{screen==="sales"&&Sales()}{screen==="customers"&&Customers()}{screen==="customer-detail"&&CustomerDetail()}{screen==="invoice-detail"&&InvoiceDetail()}{screen==="collections"&&Collections()}{screen==="payment"&&Payment()}{screen==="stock"&&Stock()}{screen==="procurement"&&Procurement()}{screen==="purchase"&&Purchase()}{screen==="reports"&&Reports()}{screen==="master"&&Master()}</main></div>;
 }

@@ -170,3 +170,27 @@ input,select,textarea{border-color:#d8e0ea;border-radius:9px;min-height:42px;tra
   .master-toolbar-actions input{width:100%;flex-basis:100%}
   .master-toolbar-actions .small-btn{width:100%}
 }
+
+
+/* Reports: compact left-side selector and data view */
+.reports-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:18px;align-items:start;margin-top:18px}
+.reports-sidebar{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:12px;position:sticky;top:18px;box-shadow:0 4px 16px rgba(15,23,42,.05)}
+.reports-sidebar-title{font-size:13px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;padding:7px 10px 10px}
+.reports-sidebar-list{display:flex;flex-direction:column;gap:5px}
+.report-side-btn{width:100%;border:0;background:transparent;color:#334155;border-radius:10px;min-height:48px;padding:8px 9px;display:flex;align-items:center;gap:9px;cursor:pointer;text-align:left;font:inherit}
+.report-side-btn:hover{background:#f1f5f9}
+.report-side-btn.active{background:#e8efff;color:#1d4ed8;font-weight:700}
+.report-side-icon{width:24px;text-align:center;font-size:17px}.report-side-label{flex:1}
+.report-side-count{min-width:25px;height:24px;padding:0 7px;border-radius:12px;background:#f1f5f9;color:#64748b;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600}
+.report-side-btn.active .report-side-count{background:#fff;color:#1d4ed8}
+.reports-content{min-width:0}.reports-content>.panel{margin-top:0}
+.report-heading{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.report-heading h3{margin:0}.report-heading small{display:block;color:#64748b;margin-top:4px}
+@media(max-width:760px){
+ .reports-layout{grid-template-columns:1fr;gap:10px}
+ .reports-sidebar{position:static;padding:9px}
+ .reports-sidebar-title{display:none}
+ .reports-sidebar-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+ .report-side-btn{min-height:44px}
+}
+@media(max-width:480px){.report-side-btn{padding:7px 8px;font-size:13px}.report-side-icon{font-size:15px}}
