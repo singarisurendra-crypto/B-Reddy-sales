@@ -1,6 +1,6 @@
  "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Children, cloneElement, isValidElement, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 const money = (n) => `₹${Number(n || 0).toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
@@ -490,7 +490,25 @@ export default function Home() {
   }
   function Card({t,v}){return <div className="card"><span>{t}</span><strong>{v}</strong></div>}
   function Header({title,children}){return <div className="header"><h1>{title}</h1><div>{children}</div></div>}
-  function Table({children}){return <div className="table-wrap"><table>{children}</table></div>}
+  function Table({children,className=""}){
+    const parts=Children.toArray(children);
+    const thead=parts.find(x=>isValidElement(x)&&x.type==="thead");
+    const headRow=thead && Children.toArray(thead.props.children)[0];
+    const labels=headRow ? Children.toArray(headRow.props.children).map(x=>isValidElement(x)?String(x.props.children||"").replace(/<[^>]+>/g,"").trim():"") : [];
+    const responsiveParts=parts.map(section=>{
+      if(!isValidElement(section)||section.type!=="tbody") return section;
+      const rows=Children.toArray(section.props.children).map(row=>{
+        if(!isValidElement(row)||row.type!=="tr") return row;
+        const cells=Children.toArray(row.props.children);
+        return cloneElement(row,{children:cells.map((cell,i)=>{
+          if(!isValidElement(cell)||cell.type!=="td") return cell;
+          return cloneElement(cell,{"data-label":labels[i]||""});
+        })});
+      });
+      return cloneElement(section,{children:rows});
+    });
+    return <div className={"table-wrap "+className}><table>{responsiveParts}</table></div>
+  }
   function Empty({col,text}){return <tr><td colSpan={col} className="empty">{text}</td></tr>}
   function Status({status}){return <span className={"status "+String(status).toLowerCase()}>{status}</span>}
 
