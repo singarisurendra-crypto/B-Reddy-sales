@@ -305,13 +305,13 @@ export default function Home() {
 
   function CustomerForm() {
     return <div className="modal-backdrop"><div className="modal">
-      <div className="modal-head"><h3>{editingCustomer?"Edit Customer":"Add Customer"}</h3><button onClick={()=>setShowCustomerForm(false)}>×</button></div>
+      <div className="modal-head"><h3>{editingCustomer?"Edit Customer":"Add Customer"}</h3><button type="button" onClick={()=>{setShowCustomerForm(false);setEditingCustomer(null);setCustomerForm({...emptyCustomer})}}>×</button></div>
       <form onSubmit={saveCustomer} className="grid-form">
         <label>Customer Name*<input value={customerForm.customer_name} onChange={e=>setCustomerForm(prev=>({...prev,customer_name:e.target.value}))}/></label>
         <label>Mobile Number<input value={customerForm.mobile_no} onChange={e=>setCustomerForm(prev=>({...prev,mobile_no:e.target.value}))}/></label>
         <label className="full">Address<textarea value={customerForm.address} onChange={e=>setCustomerForm(prev=>({...prev,address:e.target.value}))}/></label>
         <label>Opening Due<input type="number" step="0.01" value={customerForm.opening_due} onChange={e=>setCustomerForm(prev=>({...prev,opening_due:e.target.value}))}/></label>
-        <div className="modal-actions"><button type="button" className="btn secondary" onClick={()=>setShowCustomerForm(false)}>Cancel</button><button className="btn primary">Save Customer</button></div>
+        <div className="modal-actions"><button type="button" className="btn secondary" onClick={()=>{setShowCustomerForm(false);setEditingCustomer(null);setCustomerForm({...emptyCustomer})}}>Cancel</button><button type="submit" className="btn primary">{editingCustomer ? "Save Changes" : "Save Customer"}</button></div>
       </form>
     </div></div>
   }
@@ -389,29 +389,31 @@ export default function Home() {
 
         <div className="grid-form sale-details">
           <label>Invoice Date<input type="date" value={saleDate} onChange={e=>setSaleDate(e.target.value)}/></label>
-          <label className="picker-label">Customer Name*
+          <div className="picker-field">
+            <span className="field-label">Customer Name*</span>
             <div className="picker-wrap">
-              <input
-                value={c ? `${c.customer_name}${c.mobile_no ? ` — ${c.mobile_no}` : ""}` : saleCustomerSearch}
-                placeholder="Click to select customer"
-                readOnly={!!c}
-                onClick={()=>{ if(c) return; setOpenCustomerPicker(true); }}
-                onChange={e=>{setSaleCustomerSearch(e.target.value);setOpenCustomerPicker(true);}}
-                autoComplete="off"
-              />
-              {c && <button type="button" className="picker-clear" onClick={()=>{setSaleCustomer("");setSaleCustomerSearch("");setOpenCustomerPicker(true)}}>×</button>}
-              {openCustomerPicker && !c && <div className="picker-menu">
-                <input className="picker-search" autoFocus placeholder="Search customer name / mobile" value={saleCustomerSearch} onChange={e=>setSaleCustomerSearch(e.target.value)} />
+              <button type="button" className={`selection-button ${c ? "selected" : ""}`} onClick={()=>{setOpenCustomerPicker(v=>!v);setOpenItemPicker(null);}}>
+                {c ? (
+                  <span className="selection-main"><b>{c.customer_name}</b><small>{c.mobile_no || "No mobile number"}</small></span>
+                ) : (
+                  <span className="selection-main"><b>Select Customer</b><small>Click to view customers</small></span>
+                )}
+                <span className="selection-arrow">⌄</span>
+              </button>
+              {c && <button type="button" className="picker-clear" aria-label="Clear customer" onClick={()=>{setSaleCustomer("");setSaleCustomerSearch("");setOpenCustomerPicker(false)}}>×</button>}
+              {openCustomerPicker && <div className="picker-menu customer-menu">
+                <div className="picker-heading">Select Customer</div>
+                <input className="picker-search" placeholder="Search customer name / mobile" value={saleCustomerSearch} onChange={e=>setSaleCustomerSearch(e.target.value)} />
                 <div className="picker-results">
                   {pickerCustomers.map(customer=><button type="button" className="picker-option" key={customer.id} onClick={()=>chooseSaleCustomer(customer)}>
                     <span><b>{customer.customer_name}</b><small>{customer.mobile_no || "No mobile"}</small></span>
-                    <strong>{money(customerDue(customer.id))}</strong>
+                    <strong>Due {money(customerDue(customer.id))}</strong>
                   </button>)}
                   {!pickerCustomers.length && <div className="picker-empty">No customers found.</div>}
                 </div>
               </div>}
             </div>
-          </label>
+          </div>
           <label>Mobile Number<input value={c?.mobile_no||""} readOnly placeholder="Auto-filled"/></label>
           <label>Old Due<input value={c?money(customerDue(c.id)):money(0)} readOnly/></label>
         </div>
@@ -427,11 +429,17 @@ export default function Home() {
               <div className="item-picker-cell">
                 <span className="field-caption">Item</span>
                 <div className="picker-wrap">
-                  <button type="button" className="item-picker-button" onClick={()=>{setOpenItemPicker(openItemPicker===i?null:i);setItemPickerSearch("")}}>
-                    {it ? <><span><b>{it.item_name}</b><small>{it.master_name || "No master"} · Stock {available}</small></span><span>⌄</span></> : <><span><b>Select Item</b><small>Search master or item name</small></span><span>⌄</span></>}
+                  <button type="button" className={`selection-button item-selection ${it ? "selected" : ""}`} onClick={()=>{setOpenItemPicker(openItemPicker===i?null:i);setOpenCustomerPicker(false);setItemPickerSearch("")}}>
+                    {it ? (
+                      <span className="selection-main"><b>{it.item_name}</b><small>{it.master_name || "No master"} · Stock {available}</small></span>
+                    ) : (
+                      <span className="selection-main"><b>Select Item</b><small>Click to view items</small></span>
+                    )}
+                    <span className="selection-arrow">⌄</span>
                   </button>
                   {openItemPicker===i && <div className="picker-menu item-menu">
-                    <input className="picker-search" autoFocus placeholder="Search master name / item name" value={itemPickerSearch} onChange={e=>setItemPickerSearch(e.target.value)} />
+                    <div className="picker-heading">Select Item</div>
+                    <input className="picker-search" placeholder="Search master name / item name" value={itemPickerSearch} onChange={e=>setItemPickerSearch(e.target.value)} />
                     <div className="picker-results">
                       {pickerItems.map(item=><button type="button" className="picker-option" key={item.id} onClick={()=>chooseSaleItem(i,item)}>
                         <span><b>{item.item_name}</b><small>{item.master_name || "No master"}</small></span>
@@ -465,7 +473,7 @@ export default function Home() {
     </>
   }
 
-  function Customers() {return <><Header title="Customers"><button className="btn primary" onClick={()=>{setEditingCustomer(null);setCustomerForm(emptyCustomer);setShowCustomerForm(true)}}>＋ Add Customer</button></Header><div className="panel"><div className="toolbar"><input placeholder="Search name or mobile" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)}/></div><Table><thead><tr><th>Customer</th><th>Mobile</th><th>Address</th><th>Opening Due</th><th>Current Due</th><th>Action</th></tr></thead><tbody>{filteredCustomers.map(c=><tr key={c.id}><td className="link" onClick={()=>{setSelectedCustomer(c);go("customer-detail")}}>{c.customer_name}</td><td>{c.mobile_no||"-"}</td><td>{c.address||"-"}</td><td>{money(c.opening_due)}</td><td>{money(customerDue(c.id))}</td><td><button className="text-btn" onClick={()=>{setEditingCustomer(c.id);setCustomerForm({customer_name:c.customer_name,mobile_no:c.mobile_no||"",address:c.address||"",opening_due:c.opening_due});setShowCustomerForm(true)}}>Edit</button><button className="text-btn danger" onClick={()=>deleteCustomer(c.id)}>Delete</button></td></tr>)}{!filteredCustomers.length&&<Empty col="6" text="No customers found."/ >}</tbody></Table></div>{showCustomerForm&&<CustomerForm/>}</>}
+  function Customers() {return <><Header title="Customers"><button className="btn primary" onClick={()=>{setEditingCustomer(null);setCustomerForm({...emptyCustomer});setShowCustomerForm(true)}}>＋ Add Customer</button></Header><div className="panel"><div className="toolbar"><input placeholder="Search name or mobile" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)}/></div><Table><thead><tr><th>Customer</th><th>Mobile</th><th>Address</th><th>Opening Due</th><th>Current Due</th><th>Action</th></tr></thead><tbody>{filteredCustomers.map(c=><tr key={c.id}><td className="link" onClick={()=>{setSelectedCustomer(c);go("customer-detail")}}>{c.customer_name}</td><td>{c.mobile_no||"-"}</td><td>{c.address||"-"}</td><td>{money(c.opening_due)}</td><td>{money(customerDue(c.id))}</td><td><button className="text-btn" onClick={()=>{setEditingCustomer(c.id);setCustomerForm({customer_name:c.customer_name,mobile_no:c.mobile_no||"",address:c.address||"",opening_due:c.opening_due});setShowCustomerForm(true)}}>Edit</button><button className="text-btn danger" onClick={()=>deleteCustomer(c.id)}>Delete</button></td></tr>)}{!filteredCustomers.length&&<Empty col="6" text="No customers found."/ >}</tbody></Table></div>{showCustomerForm&&<CustomerForm/>}</>}
 
   function CustomerDetail(){const c=selectedCustomer;const list=sales.filter(s=>s.customer_id===c?.id);return <><Header title={c?c.customer_name:"Customer"}><button className="btn secondary" onClick={()=>go("customers")}>Back</button><button className="btn primary" onClick={()=>go("payment")}>＋ Make Payment</button></Header><div className="cards"><Card t="Mobile" v={c?.mobile_no||"-"}/><Card t="Total Due" v={money(customerDue(c?.id))}/><Card t="Invoices" v={list.length}/><Card t="30+ Days Due" v={money(list.filter(s=>Math.floor((Date.now()-new Date(s.invoice_date))/86400000)>30).reduce((a,x)=>a+Number(x.due_amount||0),0))}/></div><div className="panel"><h3>All Invoices</h3><Table><thead><tr><th>Invoice</th><th>Date</th><th>Amount</th><th>Paid</th><th>Due</th><th>Status</th></tr></thead><tbody>{list.map(s=><tr key={s.id}><td className="link" onClick={()=>{setSelectedInvoice(s);go("invoice-detail")}}>{s.invoice_no}</td><td>{s.invoice_date}</td><td>{money(s.total_amount)}</td><td>{money(s.paid_amount)}</td><td>{money(s.due_amount)}</td><td><Status status={s.payment_status}/></td></tr>)}{!list.length&&<Empty col="6" text="No invoices for this customer."/ >}</tbody></Table></div></>}
 
@@ -483,7 +491,7 @@ export default function Home() {
 
   function Purchase(){return <><Header title="New Purchase"><button className="btn secondary" onClick={()=>go("procurement")}>Cancel</button></Header><form className="panel" onSubmit={createPurchase}><div className="grid-form"><label>Purchase Date<input type="date" value={purchaseDate} onChange={e=>setPurchaseDate(e.target.value)}/></label><label>From / Supplier*<select value={purchaseSupplier} onChange={e=>setPurchaseSupplier(e.target.value)}><option value="">Select Supplier</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.supplier_name}</option>)}</select></label></div><div className="section-title">Items <button type="button" className="small-btn" onClick={()=>setPurchaseItems([...purchaseItems,{item_id:"",rate:0,qty:1}])}>＋ Add Item</button></div><Table><thead><tr><th>Item</th><th>Rate</th><th>Qty</th><th>Amount</th><th></th></tr></thead><tbody>{purchaseItems.map((x,i)=><tr key={i}><td><select value={x.item_id} onChange={e=>{const it=items.find(a=>a.id===Number(e.target.value));setPurchaseItems(prev=>prev.map((z,j)=>j===i?{...z,item_id:e.target.value,rate:it?.purchase_rate||0}:z))}}><option value="">Select Item</option>{items.map(a=><option key={a.id} value={a.id}>{a.item_name}</option>)}</select></td><td><input type="number" step="0.01" value={x.rate} onChange={e=>setPurchaseItems(prev=>prev.map((z,j)=>j===i?{...z,rate:e.target.value}:z))}/></td><td><input type="number" min="1" value={x.qty} onChange={e=>setPurchaseItems(prev=>prev.map((z,j)=>j===i?{...z,qty:e.target.value}:z))}/></td><td>{money(Number(x.rate)*Number(x.qty))}</td><td><button type="button" className="icon-btn" onClick={()=>setPurchaseItems(purchaseItems.length>1?purchaseItems.filter((_,j)=>j!==i):purchaseItems)}>×</button></td></tr>)}</tbody></Table><div className="sale-bottom"><div className="total">Total <b>{money(purchaseTotal)}</b></div><div className="payment-box"><label>Payment Status<select value={purchasePayment} onChange={e=>setPurchasePayment(e.target.value)}><option value="PAID">Paid</option><option value="PARTIAL">Partially Paid</option><option value="DUE">Due</option></select></label>{purchasePayment==="PARTIAL"&&<label>Paid Amount<input type="number" value={purchasePaid} onChange={e=>setPurchasePaid(e.target.value)}/></label>}{purchasePayment!=="DUE"&&<label>Paid From Receiver<select value={purchaseReceiver} onChange={e=>setPurchaseReceiver(e.target.value)}><option value="">Select Receiver</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name}</option>)}</select></label>}<div>Balance Due: <b>{money(dueForPurchase)}</b></div></div></div><div className="form-actions"><button className="btn primary">Save Purchase</button></div></form></>}
 
-  function Master(){return <><Header title="Master Data"/><div className="master-grid"><MasterCard title="Customer Master" count={customers.length} button="＋ Add Customer" onClick={()=>{setEditingCustomer(null);setCustomerForm(emptyCustomer);setShowCustomerForm(true)}}/><MasterCard title="Item Master" count={items.length} button="＋ Add Item" onClick={()=>{setEditingItem(null);setItemForm(emptyItem);setShowItemForm(true)}}/><MasterCard title="Receiver Master" count={receivers.length} button="＋ Add Receiver" onClick={()=>{setEditingReceiver(null);setReceiverForm(emptyReceiver);setShowReceiverForm(true)}}/><MasterCard title="Supplier Master" count={suppliers.length} button="＋ Add Supplier" onClick={()=>{setEditingSupplier(null);setSupplierForm(emptySupplier);setShowSupplierForm(true)}}/></div><div className="panel"><h3>Customers</h3><Table><thead><tr><th>Name</th><th>Mobile</th><th>Opening Due</th><th>Action</th></tr></thead><tbody>{customers.slice(0,10).map(c=><tr key={c.id}><td>{c.customer_name}</td><td>{c.mobile_no||"-"}</td><td>{money(c.opening_due)}</td><td><button className="text-btn" onClick={()=>{setEditingCustomer(c.id);setCustomerForm({customer_name:c.customer_name,mobile_no:c.mobile_no||"",address:c.address||"",opening_due:c.opening_due});setShowCustomerForm(true)}}>Edit</button></td></tr>)}{!customers.length&&<Empty col="4" text="No customers yet."/ >}</tbody></Table></div>{showCustomerForm&&<CustomerForm/>}{showItemForm&&<ItemForm/>}{showReceiverForm&&<ReceiverForm/>}{showSupplierForm&&<SupplierForm/>}</>}
+  function Master(){return <><Header title="Master Data"/><div className="master-grid"><MasterCard title="Customer Master" count={customers.length} button="＋ Add Customer" onClick={()=>{setEditingCustomer(null);setCustomerForm({...emptyCustomer});setShowCustomerForm(true)}}/><MasterCard title="Item Master" count={items.length} button="＋ Add Item" onClick={()=>{setEditingItem(null);setItemForm(emptyItem);setShowItemForm(true)}}/><MasterCard title="Receiver Master" count={receivers.length} button="＋ Add Receiver" onClick={()=>{setEditingReceiver(null);setReceiverForm(emptyReceiver);setShowReceiverForm(true)}}/><MasterCard title="Supplier Master" count={suppliers.length} button="＋ Add Supplier" onClick={()=>{setEditingSupplier(null);setSupplierForm(emptySupplier);setShowSupplierForm(true)}}/></div><div className="panel"><h3>Customers</h3><Table><thead><tr><th>Name</th><th>Mobile</th><th>Opening Due</th><th>Action</th></tr></thead><tbody>{customers.slice(0,10).map(c=><tr key={c.id}><td>{c.customer_name}</td><td>{c.mobile_no||"-"}</td><td>{money(c.opening_due)}</td><td><button className="text-btn" onClick={()=>{setEditingCustomer(c.id);setCustomerForm({customer_name:c.customer_name,mobile_no:c.mobile_no||"",address:c.address||"",opening_due:c.opening_due});setShowCustomerForm(true)}}>Edit</button></td></tr>)}{!customers.length&&<Empty col="4" text="No customers yet."/ >}</tbody></Table></div>{showCustomerForm&&<CustomerForm/>}{showItemForm&&<ItemForm/>}{showReceiverForm&&<ReceiverForm/>}{showSupplierForm&&<SupplierForm/>}</>}
   function MasterCard({title,count,button,onClick}){return <div className="master-card"><h3>{title}</h3><strong>{count}</strong><span>Records</span><button className="btn primary" onClick={onClick}>{button}</button></div>}
 
   function Reports(){const dueRows=sales.filter(s=>Number(s.due_amount)>0);return <><Header title="Reports"/><div className="report-grid"><div className="report-card"><h3>Invoice Report</h3><p>{sales.length} invoices · {money(dashboardSales)}</p></div><div className="report-card"><h3>Stock Report</h3><p>{items.length} items · {dashboardStock} units</p></div><div className="report-card"><h3>Collection Report</h3><p>{collections.length} collections · {money(dashboardCollections)}</p></div><div className="report-card"><h3>Due Report</h3><p>{dueRows.length} invoices · {money(dueRows.reduce((a,x)=>a+Number(x.due_amount),0))}</p></div></div><div className="panel"><h3>Due Report</h3><Table><thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Amount</th><th>Due</th><th>Age</th></tr></thead><tbody>{dueRows.map(s=>{const age=Math.max(0,Math.floor((Date.now()-new Date(s.invoice_date))/86400000));return <tr key={s.id}><td>{s.invoice_no}</td><td>{s.customers?.customer_name}</td><td>{s.invoice_date}</td><td>{money(s.total_amount)}</td><td>{money(s.due_amount)}</td><td>{age} days</td></tr>})}{!dueRows.length&&<Empty col="6" text="No dues."/ >}</tbody></Table></div></>}
