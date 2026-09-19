@@ -19,7 +19,7 @@ const emptyCustomer = { customer_name: "", mobile_no: "", address: "", opening_d
 const emptyItem = { master_name: "", item_name: "", sale_rate: 0, purchase_rate: 0, opening_stock: 0, minimum_stock: 0 };
 const emptyReceiver = { receiver_name: "", receiver_type: "Cash", opening_balance: 0, current_balance: 0 };
 const emptySupplier = { supplier_name: "", mobile_no: "", address: "", opening_due: 0 };
-const emptyExpense = { expense_date: today(), expense_type_id: "", amount: 0, paid_by: "Business", receiver_id: "", reference_type: "", reference_id: "", remarks: "" };
+const emptyExpense = { expense_date: today(), expense_type_id: "", amount: 0, paid_by: "Business", receiver_id: "", payment_mode: "CASH", reference_type: "", reference_id: "", remarks: "" };
 
 export default function Home() {
   const [screen, setScreen] = useState("dashboard");
@@ -56,6 +56,7 @@ export default function Home() {
   const [purchasePaymentDate, setPurchasePaymentDate] = useState(today());
   const [purchasePaymentReceiver, setPurchasePaymentReceiver] = useState("");
   const [purchasePaymentNote, setPurchasePaymentNote] = useState("");
+  const [purchasePaymentMode, setPurchasePaymentMode] = useState("CASH");
   const [dashboardPeriod, setDashboardPeriod] = useState("month");
   const [dashboardAsOnDate, setDashboardAsOnDate] = useState(today());
   const [reportAsOnDate, setReportAsOnDate] = useState(today());
@@ -96,9 +97,11 @@ export default function Home() {
   const [salePayment, setSalePayment] = useState("DUE");
   const [salePaid, setSalePaid] = useState(0);
   const [saleReceiver, setSaleReceiver] = useState("");
+  const [salePaymentMode, setSalePaymentMode] = useState("CASH");
   const [paymentCustomer, setPaymentCustomer] = useState("");
   const [paymentAmounts, setPaymentAmounts] = useState({});
   const [paymentReceiver, setPaymentReceiver] = useState("");
+  const [paymentMode, setPaymentMode] = useState("CASH");
   const [paymentDate, setPaymentDate] = useState(today());
   const [paymentNote, setPaymentNote] = useState("");
   const [paymentInvoiceId, setPaymentInvoiceId] = useState(null);
@@ -107,7 +110,7 @@ export default function Home() {
   const [collectionDateFrom, setCollectionDateFrom] = useState("");
   const [collectionDateTo, setCollectionDateTo] = useState("");
   const [collectionReceiverFilter, setCollectionReceiverFilter] = useState("");
-  const [collectionForm, setCollectionForm] = useState({collection_date:today(),receiver_id:"",total_amount:0,remarks:""});
+  const [collectionForm, setCollectionForm] = useState({collection_date:today(),receiver_id:"",payment_mode:"CASH",total_amount:0,remarks:""});
   const [stockHistoryItem, setStockHistoryItem] = useState(null);
   const [editingPurchase, setEditingPurchase] = useState(null);
   const [purchaseDate, setPurchaseDate] = useState(today());
@@ -187,7 +190,7 @@ export default function Home() {
   }, [sessionUser?.id, profile?.role]);
 
   async function loadUserProfile(userId){
-    const {data,error}=await supabase.from("user_profiles").select("*, receivers(receiver_name)").eq("id",userId).maybeSingle();
+    const {data,error}=await supabase.from("user_profiles").select("*, receivers(receiver_name)").eq("id",userId).eq("status",true).maybeSingle();
     if(error || !data){
       await supabase.auth.signOut();
       setSessionUser(null);setProfile(null);setAuthLoading(false);
@@ -205,7 +208,7 @@ export default function Home() {
     setLoginBusy(true);setNotice("");
     const {data,error}=await supabase.auth.signInWithPassword({email:loginForm.email.trim(),password:loginForm.password});
     if(error){setLoginBusy(false);return setNotice(error.message);}
-    const {data:pr,error:pe}=await supabase.from("user_profiles").select("*, receivers(receiver_name)").eq("id",data.user.id).maybeSingle();
+    const {data:pr,error:pe}=await supabase.from("user_profiles").select("*, receivers(receiver_name)").eq("id",data.user.id).eq("status",true).maybeSingle();
     if(pe || !pr){await supabase.auth.signOut();setLoginBusy(false);return setNotice("User profile is not configured. Ask the admin to create the profile.");}
     if(pr.role!==loginRole){await supabase.auth.signOut();setLoginBusy(false);return setNotice(`This account is configured as ${pr.role}. Please select the correct login.`);}
     setProfile(pr);setSessionUser(data.user);setLoginBusy(false);setScreen("dashboard");window.history.replaceState({screen:"dashboard"},"","#dashboard");
@@ -475,7 +478,7 @@ export default function Home() {
       const collectionNo = `COL-${Date.now()}`;
       const {data:col,error:colErr}=await supabase.from("collections").insert({
         collection_no:collectionNo, collection_date:saleDate, customer_id:Number(saleCustomer),
-        receiver_id:Number(saleReceiver), total_amount:paidForSale, remarks:`Payment for ${inv}`
+        receiver_id:Number(saleReceiver), payment_mode:salePaymentMode, total_amount:paidForSale, remarks:`Payment for ${inv}`
       }).select().single();
       if(colErr) return flash(colErr.message);
       const {error:allocErr}=await supabase.from("collection_allocations").insert({
@@ -486,13 +489,13 @@ export default function Home() {
         current_balance: Number(receivers.find(r=>r.id===Number(saleReceiver))?.current_balance||0)+paidForSale
       }).eq("id",Number(saleReceiver));
     }
-    setSaleCustomer(""); setSaleItems([{item_id:"",rate:0,cost_rate:0,qty:1}]); setSalePayment("DUE"); setSalePaid(0); setSaleReceiver("");
+    setSaleCustomer(""); setSaleItems([{item_id:"",rate:0,cost_rate:0,qty:1}]); setSalePayment("DUE"); setSalePaid(0); setSaleReceiver(""); setSalePaymentMode("CASH");
     await loadAll(); go("dashboard"); flash(`${inv} saved successfully.`);
   }
 
   async function makePayment(e) {
     e.preventDefault();
-    if (!paymentCustomer || !paymentReceiver) return flash("Select customer and receiver.");
+    if (!paymentCustomer || !paymentReceiver || !paymentMode) return flash("Select customer, receiver and payment mode.");
 
     const customer = customers.find(c=>c.id===Number(paymentCustomer));
     const oldDueAmount = Number(paymentOldDue || 0);
@@ -511,6 +514,7 @@ export default function Home() {
       collection_date:paymentDate,
       customer_id:Number(paymentCustomer),
       receiver_id:Number(paymentReceiver),
+      payment_mode:paymentMode,
       total_amount:total,
       remarks:paymentNote || (allocations.length ? `Payment for ${allocations.map(([saleId])=>sales.find(s=>s.id===Number(saleId))?.invoice_no).filter(Boolean).join(", ")}` : "Collection against old due")
     }).select().single();
@@ -548,6 +552,7 @@ export default function Home() {
     setPaymentOldDue("");
     setPaymentCustomer("");
     setPaymentReceiver("");
+    setPaymentMode("CASH");
     setPaymentInvoiceId(null);
     setPaymentNote("");
     await loadAll();
@@ -564,11 +569,11 @@ export default function Home() {
     if(!purchasePaymentReceiver) return flash("Select receiver.");
     const r=receivers.find(x=>x.id===Number(purchasePaymentReceiver));
     const newPaid=Number(pur.paid_amount||0)+amount, newDue=Math.max(0,Number(pur.total_amount)-newPaid);
-    const {error}=await supabase.from("purchases").update({paid_amount:newPaid,due_amount:newDue,payment_status:newDue===0?"PAID":"PARTIAL",receiver_id:Number(purchasePaymentReceiver)}).eq("id",pur.id);
+    const {error}=await supabase.from("purchases").update({paid_amount:newPaid,due_amount:newDue,payment_status:newDue===0?"PAID":"PARTIAL",receiver_id:Number(purchasePaymentReceiver),payment_mode:purchasePaymentMode}).eq("id",pur.id);
     if(error) return flash(error.message);
     await supabase.from("receivers").update({current_balance:Number(r?.current_balance||0)-amount}).eq("id",Number(purchasePaymentReceiver));
     await supabase.from("audit_logs").insert({table_name:"purchases",record_id:pur.id,action:"PAYMENT",details:{amount,payment_date:purchasePaymentDate,remarks:purchasePaymentNote,receiver_id:Number(purchasePaymentReceiver)}}).catch(()=>{});
-    setPurchasePaymentId(null);setPurchasePaymentAmount("");setPurchasePaymentReceiver("");setPurchasePaymentNote("");await loadAll();flash(`Payment recorded for ${pur.purchase_no}.`);
+    setPurchasePaymentId(null);setPurchasePaymentAmount("");setPurchasePaymentReceiver("");setPurchasePaymentMode("CASH");setPurchasePaymentNote("");await loadAll();flash(`Payment recorded for ${pur.purchase_no}.`);
   }
 
   function PurchasePaymentModal(){
@@ -580,6 +585,7 @@ export default function Home() {
         <label>Payment Date<input type="date" value={purchasePaymentDate} onChange={e=>setPurchasePaymentDate(e.target.value)}/></label>
         <label>Amount<input type="number" min="0.01" max={pur.due_amount} step="0.01" value={purchasePaymentAmount} onChange={e=>setPurchasePaymentAmount(e.target.value)} placeholder="Enter payment"/></label>
         <label>Paid From Receiver<select value={purchasePaymentReceiver} onChange={e=>setPurchasePaymentReceiver(e.target.value)}><option value="">Select Receiver</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name} ({money(r.current_balance)})</option>)}</select></label>
+        <label>Paid As<select value={purchasePaymentMode} onChange={e=>setPurchasePaymentMode(e.target.value)}><option value="CASH">Cash</option><option value="PHONEPE">PhonePe</option></select></label>
         <label className="full">Remarks<textarea value={purchasePaymentNote} onChange={e=>setPurchasePaymentNote(e.target.value)} placeholder={`Payment for ${pur.purchase_no}`}/></label>
         <div className="modal-actions"><button type="button" className="btn secondary" onClick={()=>setPurchasePaymentId(null)}>Cancel</button><button className="btn primary">Save Payment</button></div>
       </form>
@@ -611,6 +617,7 @@ export default function Home() {
         due_amount:dueForPurchase,
         payment_status:purchasePayment,
         receiver_id:purchaseReceiver?Number(purchaseReceiver):null,
+        payment_mode:purchasePaymentMode,
         transportation_charge:Number(purchaseTransport||0),
         loading_charge:Number(purchaseLoading||0),
         unloading_charge:Number(purchaseUnloading||0),
@@ -661,7 +668,7 @@ export default function Home() {
       }
 
       setEditingPurchase(null);
-      setPurchaseSupplier("");setPurchaseItems([{item_id:"",rate:0,qty:1}]);setPurchasePayment("DUE");setPurchasePaid(0);setPurchaseReceiver("");setPurchaseTransport(0);setPurchaseLoading(0);setPurchaseUnloading(0);setPurchaseChargesPaidBy("Business");setPurchaseChargesReceiver("");
+      setPurchaseSupplier("");setPurchaseItems([{item_id:"",rate:0,qty:1}]);setPurchasePayment("DUE");setPurchasePaid(0);setPurchaseReceiver("");setPurchasePaymentMode("CASH");setPurchaseTransport(0);setPurchaseLoading(0);setPurchaseUnloading(0);setPurchaseChargesPaidBy("Business");setPurchaseChargesReceiver("");
       await loadAll();go("procurement");flash(`${old.purchase_no} updated successfully.`);
       return;
     }
@@ -672,6 +679,7 @@ export default function Home() {
       purchase_no:no,purchase_date:purchaseDate,supplier_id:Number(purchaseSupplier),
       total_amount:purchaseTotal,paid_amount:paidForPurchase,due_amount:dueForPurchase,
       payment_status:purchasePayment,receiver_id:purchaseReceiver?Number(purchaseReceiver):null,
+      payment_mode:purchasePaymentMode,
       transportation_charge:Number(purchaseTransport||0),
       loading_charge:Number(purchaseLoading||0),
       unloading_charge:Number(purchaseUnloading||0),
@@ -702,7 +710,7 @@ export default function Home() {
         if(rr) await supabase.from("receivers").update({current_balance:Number(rr.current_balance||0)-purchaseChargesTotal}).eq("id",Number(rr.id));
       }
     }
-    setPurchaseSupplier("");setPurchaseItems([{item_id:"",rate:0,qty:1}]);setPurchasePayment("DUE");setPurchasePaid(0);setPurchaseReceiver("");setPurchaseTransport(0);setPurchaseLoading(0);setPurchaseUnloading(0);setPurchaseChargesPaidBy("Business");setPurchaseChargesReceiver("");
+    setPurchaseSupplier("");setPurchaseItems([{item_id:"",rate:0,qty:1}]);setPurchasePayment("DUE");setPurchasePaid(0);setPurchaseReceiver("");setPurchasePaymentMode("CASH");setPurchaseTransport(0);setPurchaseLoading(0);setPurchaseUnloading(0);setPurchaseChargesPaidBy("Business");setPurchaseChargesReceiver("");
     await loadAll();go("procurement");flash(`${no} saved successfully.`);
   }
 
@@ -724,6 +732,7 @@ export default function Home() {
       expense_date:expenseForm.expense_date, expense_type_id:Number(expenseForm.expense_type_id),
       amount:Number(expenseForm.amount), paid_by:expenseForm.paid_by,
       receiver_id:expenseForm.paid_by==="Business"&&expenseForm.receiver_id?Number(expenseForm.receiver_id):null,
+      payment_mode:expenseForm.paid_by==="Business" ? (expenseForm.payment_mode||"CASH") : "CASH",
       reference_type:expenseForm.reference_type||null, reference_id:expenseForm.reference_id?Number(expenseForm.reference_id):null,
       remarks:expenseForm.remarks||null
     };
@@ -780,7 +789,7 @@ export default function Home() {
         <label>Expense Type*<select value={expenseForm.expense_type_id} onChange={e=>setExpenseForm(v=>({...v,expense_type_id:e.target.value}))}><option value="">Select Expense Type</option>{expenseTypes.map(t=><option key={t.id} value={t.id}>{t.type_name}</option>)}</select></label>
         <label>Amount<input type="number" min="0.01" step="0.01" value={expenseForm.amount} onChange={e=>setExpenseForm(v=>({...v,amount:e.target.value}))}/></label>
         <label>Paid By<select value={expenseForm.paid_by} onChange={e=>setExpenseForm(v=>({...v,paid_by:e.target.value,receiver_id:""}))}><option>Business</option><option>Supplier</option></select></label>
-        {expenseForm.paid_by==="Business"&&<label>Paid From Receiver<select value={expenseForm.receiver_id} onChange={e=>setExpenseForm(v=>({...v,receiver_id:e.target.value}))}><option value="">Select Receiver</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name}</option>)}</select></label>}
+        {expenseForm.paid_by==="Business"&&<><label>Paid From Receiver<select value={expenseForm.receiver_id} onChange={e=>setExpenseForm(v=>({...v,receiver_id:e.target.value}))}><option value="">Select Receiver</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name}</option>)}</select></label><label>Paid As<select value={expenseForm.payment_mode} onChange={e=>setExpenseForm(v=>({...v,payment_mode:e.target.value}))}><option value="CASH">Cash</option><option value="PHONEPE">PhonePe</option></select></label></>}
         <label>Reference Type<select value={expenseForm.reference_type} onChange={e=>setExpenseForm(v=>({...v,reference_type:e.target.value}))}><option value="">None</option><option value="PURCHASE">Purchase</option><option value="OTHER">Other</option></select></label>
         {expenseForm.reference_type==="PURCHASE"&&<label>Purchase<select value={expenseForm.reference_id} onChange={e=>setExpenseForm(v=>({...v,reference_id:e.target.value}))}><option value="">Select Purchase</option>{purchases.map(x=><option key={x.id} value={x.id}>{x.purchase_no}</option>)}</select></label>}
         <label className="full">Remarks<textarea value={expenseForm.remarks} onChange={e=>setExpenseForm(v=>({...v,remarks:e.target.value}))}/></label>
@@ -792,11 +801,11 @@ export default function Home() {
   function Expenses(){
     const filtered=expenses.filter(x=>(!expenseDateFrom||x.expense_date>=expenseDateFrom)&&(!expenseDateTo||x.expense_date<=expenseDateTo)&&(!expenseTypeFilter||x.expense_type_id===Number(expenseTypeFilter)));
     function openEdit(x){
-      setEditingExpense(x.id);setExpenseForm({expense_date:x.expense_date,expense_type_id:String(x.expense_type_id),amount:x.amount,paid_by:x.paid_by,receiver_id:x.receiver_id?String(x.receiver_id):"",reference_type:x.reference_type||"",reference_id:x.reference_id?String(x.reference_id):"",remarks:x.remarks||""});setShowExpenseForm(true);
+      setEditingExpense(x.id);setExpenseForm({expense_date:x.expense_date,expense_type_id:String(x.expense_type_id),amount:x.amount,paid_by:x.paid_by,receiver_id:x.receiver_id?String(x.receiver_id):"",payment_mode:x.payment_mode||"CASH",reference_type:x.reference_type||"",reference_id:x.reference_id?String(x.reference_id):"",remarks:x.remarks||""});setShowExpenseForm(true);
     }
     return <><Header title="Expenses"><button className="btn primary" onClick={()=>{setEditingExpense(null);setExpenseForm({...emptyExpense,expense_date:today()});setShowExpenseForm(true)}}>＋ Add Expense</button></Header>
       <div className="panel expense-filters"><label>From Date<input type="date" value={expenseDateFrom} onChange={e=>setExpenseDateFrom(e.target.value)}/></label><label>To Date<input type="date" value={expenseDateTo} onChange={e=>setExpenseDateTo(e.target.value)}/></label><label>Expense Type<select value={expenseTypeFilter} onChange={e=>setExpenseTypeFilter(e.target.value)}><option value="">All Types</option>{expenseTypes.map(t=><option key={t.id} value={t.id}>{t.type_name}</option>)}</select></label><button type="button" className="btn secondary" onClick={()=>{setExpenseDateFrom("");setExpenseDateTo("");setExpenseTypeFilter("")}}>Clear</button></div>
-      <div className="panel"><div className="panel-title-row"><div><h3>Expense Register</h3><small>Total: {money(filtered.reduce((a,x)=>a+Number(x.amount||0),0))}</small></div></div><Table><thead><tr><th>Date</th><th>Expense Type</th><th>Amount</th><th>Paid By</th><th>Receiver</th><th>Reference</th><th>Remarks</th></tr></thead><tbody>{filtered.map(x=><tr key={x.id}><td>{x.expense_date}</td><td>{x.expense_types?.type_name}</td><td>{money(x.amount)}</td><td>{x.paid_by}</td><td>{x.receivers?.receiver_name||"-"}</td><td className={x.reference_type==="PURCHASE"?"link":""} onClick={()=>x.reference_type==="PURCHASE"&&x.reference_id&&(()=>{const pp=purchases.find(z=>z.id===Number(x.reference_id));if(pp){setEditingPurchase(pp.id);setPurchaseDate(pp.purchase_date);setPurchaseSupplier(String(pp.supplier_id));setPurchaseItems((pp.purchase_items||[]).map(q=>({item_id:String(q.item_id),rate:q.rate,qty:q.qty})));go("purchase")}})()}>{x.reference_type?`${x.reference_type} #${x.reference_id}`:"-"}</td><td>{x.remarks||"-"}</td></tr>)}{!filtered.length&&<Empty col="7" text="No expenses found."/>}</tbody></Table></div>
+      <div className="panel"><div className="panel-title-row"><div><h3>Expense Register</h3><small>Total: {money(filtered.reduce((a,x)=>a+Number(x.amount||0),0))}</small></div></div><Table><thead><tr><th>Date</th><th>Expense Type</th><th>Amount</th><th>Paid By</th><th>Receiver</th><th>Paid As</th><th>Reference</th><th>Remarks</th></tr></thead><tbody>{filtered.map(x=><tr key={x.id}><td>{x.expense_date}</td><td>{x.expense_types?.type_name}</td><td>{money(x.amount)}</td><td>{x.paid_by}</td><td>{x.receivers?.receiver_name||"-"}</td><td>{x.payment_mode==="PHONEPE"?"PhonePe":"Cash"}</td><td className={x.reference_type==="PURCHASE"?"link":""} onClick={()=>x.reference_type==="PURCHASE"&&x.reference_id&&(()=>{const pp=purchases.find(z=>z.id===Number(x.reference_id));if(pp){setEditingPurchase(pp.id);setPurchaseDate(pp.purchase_date);setPurchaseSupplier(String(pp.supplier_id));setPurchaseItems((pp.purchase_items||[]).map(q=>({item_id:String(q.item_id),rate:q.rate,qty:q.qty})));go("purchase")}})()}>{x.reference_type?`${x.reference_type} #${x.reference_id}`:"-"}</td><td>{x.remarks||"-"}</td></tr>)}{!filtered.length&&<Empty col="8" text="No expenses found."/>}</tbody></Table></div>
       {showExpenseForm&&ExpenseForm()}
     </>
   }
@@ -1036,7 +1045,7 @@ function Sidebar() {
           <div className="payment-box payment-modern">
             <label>Payment Status<select value={salePayment} onChange={e=>setSalePayment(e.target.value)}><option value="PAID">Paid</option><option value="PARTIAL">Partially Paid</option><option value="DUE">Due</option></select></label>
             {salePayment==="PARTIAL"&&<label>Paid Amount<input type="number" min="0" step="0.01" value={salePaid} onChange={e=>setSalePaid(e.target.value)}/></label>}
-            {salePayment!=="DUE"&&<label>Receiver<select value={saleReceiver} onChange={e=>setSaleReceiver(e.target.value)}><option value="">Select Receiver</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name}</option>)}</select></label>}
+            {salePayment!=="DUE"&&<><label>Receiver<select value={saleReceiver} onChange={e=>setSaleReceiver(e.target.value)}><option value="">Select Receiver</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name}</option>)}</select></label><label>Received As<select value={salePaymentMode} onChange={e=>setSalePaymentMode(e.target.value)}><option value="CASH">Cash</option><option value="PHONEPE">PhonePe</option></select></label></>}
             <div className="due-preview">Balance Due <b>{money(dueForSale)}</b></div>
           </div>
         </div>
@@ -1132,6 +1141,11 @@ function Sidebar() {
               <option value="">Select Receiver</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name} ({money(r.current_balance)})</option>)}
             </select>
           </label>
+          <label>Received As*
+            <select value={paymentMode} onChange={e=>setPaymentMode(e.target.value)}>
+              <option value="CASH">Cash</option><option value="PHONEPE">PhonePe</option>
+            </select>
+          </label>
         </div>
 
         {customer && Number(customer.opening_due)>0 && <div className="old-due-box">
@@ -1169,7 +1183,7 @@ function Sidebar() {
     const filteredCollections=collectionsDataFilter(collections,collectionDateFrom,collectionDateTo,collectionReceiverFilter).filter(c=>c.collection_date<=collectionsAsOnDate);
     function editCollection(c){
       setEditingCollection(c);
-      setCollectionForm({collection_date:c.collection_date,receiver_id:String(c.receiver_id||""),total_amount:Number(c.total_amount||0),remarks:c.remarks||""});
+      setCollectionForm({collection_date:c.collection_date,receiver_id:String(c.receiver_id||""),payment_mode:c.payment_mode||"CASH",total_amount:Number(c.total_amount||0),remarks:c.remarks||""});
     }
     return <><Header title="Collections"><button className="btn primary" onClick={()=>{setPaymentCustomer("");setPaymentAmounts({});setPaymentOldDue("");setPaymentInvoiceId(null);go("payment")}}>＋ Collect Amount</button></Header>
       <div className="panel collection-filters">
@@ -1178,9 +1192,9 @@ function Sidebar() {
         <label>Receiver<select value={collectionReceiverFilter} onChange={e=>setCollectionReceiverFilter(e.target.value)}><option value="">All Receivers</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name}</option>)}</select></label>
         <button type="button" className="btn secondary filter-clear" onClick={()=>{setCollectionDateFrom("");setCollectionDateTo("");setCollectionReceiverFilter("")}}>Clear</button>
       </div>
-      <div className="panel"><Table><thead><tr><th>Collection No.</th><th>Date</th><th>Customer</th><th>Receiver</th><th>Amount</th><th>Remarks</th></tr></thead>
+      <div className="panel"><Table><thead><tr><th>Collection No.</th><th>Date</th><th>Customer</th><th>Receiver</th><th>Received As</th><th>Amount</th><th>Remarks</th></tr></thead>
         <tbody>{filteredCollections.map(c=><tr key={c.id}>
-          <td className="link" onClick={()=>editCollection(c)}>{c.collection_no}</td><td>{c.collection_date}</td><td>{c.customers?.customer_name}</td><td>{c.receivers?.receiver_name}</td><td>{money(c.total_amount)}</td><td>{c.remarks||"-"}</td>
+          <td className="link" onClick={()=>editCollection(c)}>{c.collection_no}</td><td>{c.collection_date}</td><td>{c.customers?.customer_name}</td><td>{c.receivers?.receiver_name}</td><td>{c.payment_mode==="PHONEPE"?"PhonePe":"Cash"}</td><td>{money(c.total_amount)}</td><td>{c.remarks||"-"}</td>
         </tr>)}{!filteredCollections.length&&<Empty col="7" text="No collections found."/>}</tbody></Table></div>
       {editingCollection&&<CollectionEditModal/>}
     </>
@@ -1228,6 +1242,7 @@ function Sidebar() {
       const {error:uErr}=await supabase.from("collections").update({
         collection_date:collectionForm.collection_date,
         receiver_id:newReceiverId,
+        payment_mode:collectionForm.payment_mode||"CASH",
         total_amount:newAmount,
         remarks:collectionForm.remarks
       }).eq("id",c.id);
@@ -1272,6 +1287,7 @@ function Sidebar() {
       <form className="grid-form" onSubmit={saveCollectionEdit}>
         <label>Collection Date<input type="date" value={collectionForm.collection_date} onChange={e=>setCollectionForm(v=>({...v,collection_date:e.target.value}))}/></label>
         <label>Receiver<select value={collectionForm.receiver_id} onChange={e=>setCollectionForm(v=>({...v,receiver_id:e.target.value}))}><option value="">Select Receiver</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name}</option>)}</select></label>
+        <label>Received As<select value={collectionForm.payment_mode} onChange={e=>setCollectionForm(v=>({...v,payment_mode:e.target.value}))}><option value="CASH">Cash</option><option value="PHONEPE">PhonePe</option></select></label>
         <label>Amount<input type="number" min="0.01" step="0.01" value={collectionForm.total_amount} disabled={(c.collection_allocations||[]).length>1} onChange={e=>setCollectionForm(v=>({...v,total_amount:e.target.value}))}/>{(c.collection_allocations||[]).length>1&&<small>Multiple invoices: amount is tied to the existing allocations.</small>}</label>
         <label className="full">Remarks<textarea value={collectionForm.remarks} onChange={e=>setCollectionForm(v=>({...v,remarks:e.target.value}))}/></label>
         <div className="modal-actions"><button type="button" className="btn secondary" onClick={()=>setEditingCollection(null)}>Cancel</button><button className="btn primary">Save Changes</button></div>
@@ -1309,7 +1325,7 @@ function Sidebar() {
       if(procurementDateTo && p.purchase_date>procurementDateTo) return false;
       return true;
     });
-    return <><Header title="Procurement"><div className="header-actions"><label className="header-date">As on Date<input type="date" value={procurementAsOnDate} onChange={e=>setProcurementAsOnDate(e.target.value)}/></label><button className="btn primary" onClick={()=>{setEditingPurchase(null);setPurchaseDate(today());setPurchaseSupplier("");setPurchaseItems([{item_id:"",rate:0,qty:1}]);setPurchasePayment("DUE");setPurchasePaid(0);setPurchaseReceiver("");setPurchaseTransport(0);setPurchaseLoading(0);setPurchaseUnloading(0);setPurchaseChargesPaidBy("Business");setPurchaseChargesReceiver("");go("purchase")}}>＋ Purchase</button></div></Header>
+    return <><Header title="Procurement"><div className="header-actions"><label className="header-date">As on Date<input type="date" value={procurementAsOnDate} onChange={e=>setProcurementAsOnDate(e.target.value)}/></label><button className="btn primary" onClick={()=>{setEditingPurchase(null);setPurchaseDate(today());setPurchaseSupplier("");setPurchaseItems([{item_id:"",rate:0,qty:1}]);setPurchasePayment("DUE");setPurchasePaid(0);setPurchaseReceiver("");setPurchasePaymentMode("CASH");setPurchaseTransport(0);setPurchaseLoading(0);setPurchaseUnloading(0);setPurchaseChargesPaidBy("Business");setPurchaseChargesReceiver("");go("purchase")}}>＋ Purchase</button></div></Header>
       <div className="panel procurement-filters">
         <label>Purchase No.<input placeholder="Search purchase" value={procurementSearch} onChange={e=>setProcurementSearch(e.target.value)}/></label>
         <label>Supplier<select value={procurementSupplierFilter} onChange={e=>setProcurementSupplierFilter(e.target.value)}><option value="">All Suppliers</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.supplier_name}</option>)}</select></label>
@@ -1319,10 +1335,10 @@ function Sidebar() {
         <button type="button" className="btn secondary filter-clear" onClick={()=>{setProcurementSearch("");setProcurementSupplierFilter("");setProcurementStatusFilter("");setProcurementDateFrom("");setProcurementDateTo("")}}>Clear</button>
       </div>
       <div className="panel"><div className="panel-title-row"><div><h3>Procurement Register</h3><small>{rows.length} purchases matching filters · up to {procurementAsOnDate}</small></div></div><Table><thead><tr><th>Purchase</th><th>Date</th><th>Supplier</th><th>Total</th><th>Paid</th><th>Due</th><th>Status</th><th>Payment</th></tr></thead><tbody>{rows.map(p=><tr key={p.id}>
-        <td className="link" onClick={()=>{setEditingPurchase(p.id);setPurchaseDate(p.purchase_date);setPurchaseSupplier(String(p.supplier_id));setPurchaseItems((p.purchase_items||[]).map(x=>({item_id:String(x.item_id),rate:x.rate,qty:x.qty})));setPurchasePayment(p.payment_status);setPurchasePaid(p.paid_amount);setPurchaseReceiver(p.receiver_id?String(p.receiver_id):"");setPurchaseTransport(p.transportation_charge||0);setPurchaseLoading(p.loading_charge||0);setPurchaseUnloading(p.unloading_charge||0);setPurchaseChargesPaidBy(p.charges_paid_by||"Business");setPurchaseChargesReceiver(p.charges_receiver_id?String(p.charges_receiver_id):"");go("purchase")}}>{p.purchase_no}</td>
+        <td className="link" onClick={()=>{setEditingPurchase(p.id);setPurchaseDate(p.purchase_date);setPurchaseSupplier(String(p.supplier_id));setPurchaseItems((p.purchase_items||[]).map(x=>({item_id:String(x.item_id),rate:x.rate,qty:x.qty})));setPurchasePayment(p.payment_status);setPurchasePaid(p.paid_amount);setPurchaseReceiver(p.receiver_id?String(p.receiver_id):"");setPurchasePaymentMode(p.payment_mode||"CASH");setPurchaseTransport(p.transportation_charge||0);setPurchaseLoading(p.loading_charge||0);setPurchaseUnloading(p.unloading_charge||0);setPurchaseChargesPaidBy(p.charges_paid_by||"Business");setPurchaseChargesReceiver(p.charges_receiver_id?String(p.charges_receiver_id):"");go("purchase")}}>{p.purchase_no}</td>
         <td>{p.purchase_date}</td><td className="link" onClick={()=>{const s=suppliers.find(x=>x.id===Number(p.supplier_id));if(s){setEditingSupplier(s.id);setSupplierForm({supplier_name:s.supplier_name,mobile_no:s.mobile_no||"",address:s.address||"",opening_due:s.opening_due||0});setMasterTab("suppliers");setShowSupplierForm(true);go("master")}}}>{p.suppliers?.supplier_name}</td>
         <td>{money(p.total_amount)}</td><td>{money(p.paid_amount)}</td><td>{money(p.due_amount)}</td><td><Status status={p.payment_status}/></td>
-        <td>{Number(p.due_amount)>0?<button className="small-btn primary" onClick={()=>{setPurchasePaymentId(p.id);setPurchasePaymentAmount("");setPurchasePaymentDate(today());setPurchasePaymentReceiver(p.receiver_id?String(p.receiver_id):"");setPurchasePaymentNote(`Payment for ${p.purchase_no}`)}}>Payment</button>:<span className="status paid">Paid</span>}</td>
+        <td>{Number(p.due_amount)>0?<button className="small-btn primary" onClick={()=>{setPurchasePaymentId(p.id);setPurchasePaymentAmount("");setPurchasePaymentDate(today());setPurchasePaymentReceiver(p.receiver_id?String(p.receiver_id):"");setPurchasePaymentMode(p.payment_mode||"CASH");setPurchasePaymentNote(`Payment for ${p.purchase_no}`)}}>Payment</button>:<span className="status paid">Paid</span>}</td>
       </tr>)}{!rows.length&&<Empty col="8" text="No purchases match the selected filters."/>}</tbody></Table></div>
       {purchasePaymentId&&<PurchasePaymentModal/>}
     </>
@@ -1350,7 +1366,7 @@ function Sidebar() {
           <div className="expense-total-line"><span>Item Value</span><b>{money(purchaseItemsTotal)}</b><span>Additional Expenses</span><b>{money(purchaseChargesTotal)}</b></div>
         </div>
 
-        <div className="sale-bottom"><div className="total">Supplier Total <b>{money(purchaseTotal)}</b></div><div className="payment-box"><label>Supplier Payment Status<select value={purchasePayment} onChange={e=>setPurchasePayment(e.target.value)}><option value="PAID">Paid</option><option value="PARTIAL">Partially Paid</option><option value="DUE">Due</option></select></label>{purchasePayment==="PARTIAL"&&<label>Paid Amount<input type="number" min="0" value={purchasePaid} onChange={e=>setPurchasePaid(e.target.value)}/></label>}{purchasePayment!=="DUE"&&<label>Paid From Receiver<select value={purchaseReceiver} onChange={e=>setPurchaseReceiver(e.target.value)}><option value="">Select Receiver</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name}</option>)}</select></label>}<div>Supplier Balance Due: <b>{money(dueForPurchase)}</b></div></div></div>
+        <div className="sale-bottom"><div className="total">Supplier Total <b>{money(purchaseTotal)}</b></div><div className="payment-box"><label>Supplier Payment Status<select value={purchasePayment} onChange={e=>setPurchasePayment(e.target.value)}><option value="PAID">Paid</option><option value="PARTIAL">Partially Paid</option><option value="DUE">Due</option></select></label>{purchasePayment==="PARTIAL"&&<label>Paid Amount<input type="number" min="0" value={purchasePaid} onChange={e=>setPurchasePaid(e.target.value)}/></label>}{purchasePayment!=="DUE"&&<><label>Paid From Receiver<select value={purchaseReceiver} onChange={e=>setPurchaseReceiver(e.target.value)}><option value="">Select Receiver</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name}</option>)}</select></label><label>Paid As<select value={purchasePaymentMode} onChange={e=>setPurchasePaymentMode(e.target.value)}><option value="CASH">Cash</option><option value="PHONEPE">PhonePe</option></select></label></>}<div>Supplier Balance Due: <b>{money(dueForPurchase)}</b></div></div></div>
         <div className="form-actions"><button className="btn primary">{editingPurchase?"Update Purchase":"Save Purchase"}</button></div>
       </form>
     </>
@@ -1502,10 +1518,10 @@ function Sidebar() {
       doc.setFontSize(16);doc.text(`B REDDY SALES - ${title}`,14,16);doc.setFontSize(9);doc.text(`As on: ${reportAsOnDate} | Period: ${reportPeriod==="day"?"Day":reportPeriod==="week"?"Week":"This Month"}`,14,23);
       let y=32;
       const rows=reportTab==="invoices"?reportSales.map(x=>[x.invoice_no,x.customers?.customer_name||"-",x.invoice_date,money(x.total_amount),money(x.paid_amount),money(x.due_amount)])
-        :reportTab==="collections"?reportCollections.map(x=>[x.collection_no,x.collection_date,x.customers?.customer_name||"-",x.receivers?.receiver_name||"-",money(x.total_amount),x.remarks||"-"])
+        :reportTab==="collections"?reportCollections.map(x=>[x.collection_no,x.collection_date,x.customers?.customer_name||"-",x.receivers?.receiver_name||"-",x.payment_mode==="PHONEPE"?"PhonePe":"Cash",money(x.total_amount),x.remarks||"-"])
         :reportTab==="stock"?reportStock.map(x=>[x.it.master_name||"-",x.it.item_name,String(x.qty),money(x.it.sale_rate)])
         :dueRows.map(x=>[x.invoice_no,x.customers?.customer_name||"-",x.invoice_date,money(x.total_amount),money(x.due_amount)]);
-      const heads=reportTab==="invoices"?["Invoice","Customer","Date","Amount","Paid","Due"]:reportTab==="collections"?["Collection","Date","Customer","Receiver","Amount","Remarks"]:reportTab==="stock"?["Master","Item","Stock","Sale Rate"]:["Invoice","Customer","Date","Amount","Due"];
+      const heads=reportTab==="invoices"?["Invoice","Customer","Date","Amount","Paid","Due"]:reportTab==="collections"?["Collection","Date","Customer","Receiver","Received As","Amount","Remarks"]:reportTab==="stock"?["Master","Item","Stock","Sale Rate"]:["Invoice","Customer","Date","Amount","Due"];
       doc.setFont("helvetica","bold");doc.text(heads.join(" | "),14,y);y+=7;doc.setFont("helvetica","normal");
       rows.forEach(r=>{const line=r.join(" | ");const wrapped=doc.splitTextToSize(line,180);if(y+wrapped.length*5>285){doc.addPage();y=18;doc.setFont("helvetica","bold");doc.text(heads.join(" | "),14,y);y+=7;doc.setFont("helvetica","normal")}doc.text(wrapped,14,y);y+=Math.max(5,wrapped.length*5)});
       doc.save(`${title.replace(/\s+/g,"-").toLowerCase()}-${reportAsOnDate}.pdf`);
@@ -1522,7 +1538,7 @@ function Sidebar() {
         <main className="reports-content">
           {reportTab==="invoices"&&<div className="panel"><div className="report-heading"><div><h3>Invoice Report</h3><small>{reportSales.length} invoices · {money(reportSales.reduce((a,x)=>a+Number(x.total_amount||0),0))}</small></div></div><Table><thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Amount</th><th>Paid</th><th>Due</th><th>Status</th></tr></thead><tbody>{reportSales.map(s=><tr key={s.id}><td className="link" onClick={()=>{setSelectedInvoice(s);go("invoice-detail")}}>{s.invoice_no}</td><td>{s.customers?.customer_name||"-"}</td><td>{s.invoice_date}</td><td>{money(s.total_amount)}</td><td>{money(s.paid_amount)}</td><td>{money(s.due_amount)}</td><td><Status status={s.payment_status}/></td></tr>)}{!reportSales.length&&<Empty col="7" text="No invoices for selected period."/>}</tbody></Table></div>}
           {reportTab==="stock"&&<div className="panel"><div className="report-heading"><div><h3>Stock Report</h3><small>Opening stock and available stock as on {reportAsOnDate}</small></div></div><Table><thead><tr><th>Item</th><th>Opening Stock</th><th>Purchases</th><th>Sales</th><th>Available Stock</th></tr></thead><tbody>{reportStock.map(({it,qty})=>{const tx=stockTxns.filter(t=>t.item_id===it.id&&t.transaction_date<=reportAsOnDate);return <tr key={it.id}><td>{it.item_name}</td><td>{it.opening_stock}</td><td>{tx.reduce((a,t)=>a+Number(t.qty_in||0),0)}</td><td>{tx.reduce((a,t)=>a+Number(t.qty_out||0),0)}</td><td><b>{qty}</b></td></tr>})}{!reportStock.length&&<Empty col="5" text="No stock items."/>}</tbody></Table></div>}
-          {reportTab==="collections"&&<div className="panel"><div className="report-heading"><div><h3>Collection Report</h3><small>{reportCollections.length} collections · {money(reportCollections.reduce((a,x)=>a+Number(x.total_amount||0),0))}</small></div></div><Table><thead><tr><th>Collection No.</th><th>Date</th><th>Customer</th><th>Receiver</th><th>Amount</th><th>Remarks</th></tr></thead><tbody>{reportCollections.map(c=><tr key={c.id}><td className="link" onClick={()=>editCollection(c)}>{c.collection_no||"-"}</td><td>{c.collection_date}</td><td>{c.customers?.customer_name||"-"}</td><td>{c.receivers?.receiver_name||"-"}</td><td>{money(c.total_amount)}</td><td>{c.remarks||"-"}</td></tr>)}{!reportCollections.length&&<Empty col="6" text="No collections for selected period."/>}</tbody></Table></div>}
+          {reportTab==="collections"&&<div className="panel"><div className="report-heading"><div><h3>Collection Report</h3><small>{reportCollections.length} collections · {money(reportCollections.reduce((a,x)=>a+Number(x.total_amount||0),0))}</small></div></div><Table><thead><tr><th>Collection No.</th><th>Date</th><th>Customer</th><th>Receiver</th><th>Received As</th><th>Amount</th><th>Remarks</th></tr></thead><tbody>{reportCollections.map(c=><tr key={c.id}><td className="link" onClick={()=>editCollection(c)}>{c.collection_no||"-"}</td><td>{c.collection_date}</td><td>{c.customers?.customer_name||"-"}</td><td>{c.receivers?.receiver_name||"-"}</td><td>{c.payment_mode==="PHONEPE"?"PhonePe":"Cash"}</td><td>{money(c.total_amount)}</td><td>{c.remarks||"-"}</td></tr>)}{!reportCollections.length&&<Empty col="6" text="No collections for selected period."/>}</tbody></Table></div>}
           {reportTab==="dues"&&<div className="panel"><div className="report-heading"><div><h3>Due Report</h3><small>Outstanding invoices as on {reportAsOnDate}</small></div></div><Table><thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Amount</th><th>Due</th><th>Age</th></tr></thead><tbody>{dueRows.map(s=>{const age=Math.max(0,Math.floor((new Date(reportAsOnDate)-new Date(s.invoice_date))/86400000));return <tr key={s.id}><td className="link" onClick={()=>{setSelectedInvoice(s);go("invoice-detail")}}>{s.invoice_no}</td><td>{s.customers?.customer_name||"-"}</td><td>{s.invoice_date}</td><td>{money(s.total_amount)}</td><td>{money(s.due_amount)}</td><td>{age} days</td></tr>})}{!dueRows.length&&<Empty col="6" text="No dues."/>}</tbody></Table></div>}
         </main>
       </div>
