@@ -1,7 +1,7 @@
  "use client";
 
 import { Children, cloneElement, isValidElement, useEffect, useMemo, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { db } from "../lib/apiClient";
 import { jsPDF } from "jspdf";
 
 const money = (n) => `₹${Number(n || 0).toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
@@ -145,96 +145,77 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    let active=true;
-    supabase.auth.getSession().then(async ({data:{session}})=>{
-      if(!active) return;
-      if(session){
-        setSessionUser(session.user);
-        await loadUserProfile(session.user.id);
-      } else {
+    let active = true;
+    fetch("/api/auth/me", { credentials: "include" })
+      .then(async r => ({ ok: r.ok, json: await r.json() }))
+      .then(({ ok, json }) => {
+        if (!active) return;
+        if (ok && json.user) {
+          setSessionUser(json.user);
+          setProfile(json.user);
+        }
         setAuthLoading(false);
-      }
-    });
-    const {data:{subscription}}=supabase.auth.onAuthStateChange(async (_event,session)=>{
-      if(!active) return;
-      if(session){
-        setSessionUser(session.user);
-        await loadUserProfile(session.user.id);
-      }else{
-        setSessionUser(null);setProfile(null);setAuthLoading(false);
-      }
-    });
-    return ()=>{active=false;subscription.unsubscribe();};
+      })
+      .catch(() => { if (active) setAuthLoading(false); });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
-    if(!sessionUser || !profile) return;
+    if (!sessionUser || !profile) return;
     loadAll();
-    const channel = supabase
-      .channel("b-reddy-sales-live")
-      .on("postgres_changes", {event:"*", schema:"public", table:"customers"}, () => loadAll())
-      .on("postgres_changes", {event:"*", schema:"public", table:"item_master"}, () => loadAll())
-      .on("postgres_changes", {event:"*", schema:"public", table:"receivers"}, () => loadAll())
-      .on("postgres_changes", {event:"*", schema:"public", table:"suppliers"}, () => loadAll())
-      .on("postgres_changes", {event:"*", schema:"public", table:"sales"}, () => loadAll())
-      .on("postgres_changes", {event:"*", schema:"public", table:"collections"}, () => loadAll())
-      .on("postgres_changes", {event:"*", schema:"public", table:"collection_allocations"}, () => loadAll())
-      .on("postgres_changes", {event:"*", schema:"public", table:"purchases"}, () => loadAll())
-      .on("postgres_changes", {event:"*", schema:"public", table:"purchase_items"}, () => loadAll())
-      .on("postgres_changes", {event:"*", schema:"public", table:"stock_transactions"}, () => loadAll())
-      .on("postgres_changes", {event:"*", schema:"public", table:"expense_types"}, () => loadAll())
-      .on("postgres_changes", {event:"*", schema:"public", table:"expenses"}, () => loadAll())
-      .on("postgres_changes", {event:"*", schema:"public", table:"audit_logs"}, () => loadAll())
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    const timer = setInterval(loadAll, 30000);
+    return () => clearInterval(timer);
   }, [sessionUser?.id, profile?.role]);
 
-  async function loadUserProfile(userId){
-    const {data,error}=await supabase.from("user_profiles").select("*, receivers(receiver_name)").eq("id",userId).eq("status",true).maybeSingle();
-    if(error || !data){
-      await supabase.auth.signOut();
-      setSessionUser(null);setProfile(null);setAuthLoading(false);
-      setNotice(error?.message || "User profile is not configured. Ask the admin to create the user profile.");
+  async function loadUserProfile() {
+    const res = await fetch("/api/auth/me", { credentials: "include" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.user) {
+      setSessionUser(null); setProfile(null); setAuthLoading(false);
       return null;
     }
-    setProfile(data);setAuthLoading(false);
-    if(data.role==="receiver" && ["master","procurement","purchase","expenses","audit"].includes(screen)) setScreen("dashboard");
-    return data;
+    setSessionUser(json.user); setProfile(json.user); setAuthLoading(false);
+    return json.user;
   }
 
   async function handleLogin(e){
     e.preventDefault();
     if(!loginForm.email.trim() || !loginForm.password) return setNotice("Enter email and password.");
-    setLoginBusy(true);setNotice("");
-    const {data,error}=await supabase.auth.signInWithPassword({email:loginForm.email.trim(),password:loginForm.password});
-    if(error){setLoginBusy(false);return setNotice(error.message);}
-    const {data:pr,error:pe}=await supabase.from("user_profiles").select("*, receivers(receiver_name)").eq("id",data.user.id).eq("status",true).maybeSingle();
-    if(pe || !pr){await supabase.auth.signOut();setLoginBusy(false);return setNotice("User profile is not configured. Ask the admin to create the profile.");}
-    if(pr.role!==loginRole){await supabase.auth.signOut();setLoginBusy(false);return setNotice(`This account is configured as ${pr.role}. Please select the correct login.`);}
-    setProfile(pr);setSessionUser(data.user);setLoginBusy(false);setScreen("dashboard");window.history.replaceState({screen:"dashboard"},"","#dashboard");
+    setLoginBusy(true); setNotice("");
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST", headers: {"Content-Type":"application/json"}, credentials: "include",
+        body: JSON.stringify({ email: loginForm.email.trim(), password: loginForm.password, role: loginRole })
+      });
+      const json = await res.json().catch(() => ({}));
+      if(!res.ok) { setLoginBusy(false); return setNotice(json.error || "Login failed."); }
+      setProfile(json.user); setSessionUser(json.user); setLoginBusy(false); setScreen("dashboard");
+      window.history.replaceState({screen:"dashboard"},"","#dashboard");
+    } catch(err) {
+      setLoginBusy(false); setNotice(err.message || "Login failed.");
+    }
   }
 
   async function logout(){
-    await supabase.auth.signOut();
-    setSessionUser(null);setProfile(null);setScreen("dashboard");
+    await fetch("/api/auth/logout", { method:"POST", credentials:"include" });
+    setSessionUser(null); setProfile(null); setScreen("dashboard");
   }
-
 
   async function loadAll() {
     setLoading(true);
     const queries = await Promise.all([
-      supabase.from("customers").select("*").eq("status", true).order("customer_name"),
-      supabase.from("item_master").select("*").eq("status", true).order("item_name"),
-      supabase.from("receivers").select("*").eq("status", true).order("receiver_name"),
-      supabase.from("suppliers").select("*").eq("status", true).order("supplier_name"),
-      supabase.from("sales").select("*, customers(customer_name, mobile_no), sale_items(*, item_master(item_name, master_name))").order("invoice_date", { ascending: false }),
-      supabase.from("collections").select("*, customers(customer_name), receivers(receiver_name), collection_allocations(*, sales(invoice_no))").order("collection_date", { ascending: false }),
-      supabase.from("purchases").select("*, suppliers(supplier_name), receivers(receiver_name), purchase_items(*, item_master(item_name))").order("purchase_date", { ascending: false }),
-      supabase.from("stock_transactions").select("*, item_master(item_name, master_name)").order("transaction_date", { ascending: true }),
-      supabase.from("expense_types").select("*").eq("status", true).order("type_name"),
-      supabase.from("expenses").select("*, expense_types(type_name), receivers(receiver_name)").order("expense_date", { ascending: false }),
-      supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(500),
-      supabase.from("user_profiles").select("*, receivers(receiver_name)").order("full_name")
+      db.from("customers").select("*").eq("status", true).order("customer_name"),
+      db.from("item_master").select("*").eq("status", true).order("item_name"),
+      db.from("receivers").select("*").eq("status", true).order("receiver_name"),
+      db.from("suppliers").select("*").eq("status", true).order("supplier_name"),
+      db.from("sales").select("*, customers(customer_name, mobile_no), sale_items(*, item_master(item_name, master_name))").order("invoice_date", { ascending: false }),
+      db.from("collections").select("*, customers(customer_name), receivers(receiver_name), collection_allocations(*, sales(invoice_no))").order("collection_date", { ascending: false }),
+      db.from("purchases").select("*, suppliers(supplier_name), receivers(receiver_name), purchase_items(*, item_master(item_name))").order("purchase_date", { ascending: false }),
+      db.from("stock_transactions").select("*, item_master(item_name, master_name)").order("transaction_date", { ascending: true }),
+      db.from("expense_types").select("*").eq("status", true).order("type_name"),
+      db.from("expenses").select("*, expense_types(type_name), receivers(receiver_name)").order("expense_date", { ascending: false }),
+      db.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(500),
+      profile?.role === "admin" ? db.from("user_profiles").select("*, receivers(receiver_name)").order("full_name") : Promise.resolve({data:[],error:null})
     ]);
     const [c,i,r,s,sa,co,pu,st,et,ex,au,up] = queries;
     const firstError = [c,i,r,s,sa,co,pu,st,et,ex,au].find(x => x.error);
@@ -309,8 +290,8 @@ export default function Home() {
     if (!customerForm.customer_name.trim()) return flash("Customer name is required.");
     const payload = {...customerForm, opening_due: Number(customerForm.opening_due || 0)};
     const q = editingCustomer
-      ? supabase.from("customers").update(payload).eq("id", editingCustomer)
-      : supabase.from("customers").insert(payload);
+      ? db.from("customers").update(payload).eq("id", editingCustomer)
+      : db.from("customers").insert(payload);
     const { error } = await q;
     if (error) return flash(error.message);
     setCustomerForm(emptyCustomer); setEditingCustomer(null); setShowCustomerForm(false);
@@ -319,7 +300,7 @@ export default function Home() {
 
   async function deleteCustomer(id) {
     if (!confirm("Delete this customer?")) return;
-    const { error } = await supabase.from("customers").update({status:false}).eq("id", id);
+    const { error } = await db.from("customers").update({status:false}).eq("id", id);
     if (error) return flash(error.message);
     await loadAll(); flash("Customer deleted.");
   }
@@ -328,7 +309,7 @@ export default function Home() {
     e.preventDefault();
     if (!itemForm.item_name.trim()) return flash("Item name is required.");
     const payload = {...itemForm, sale_rate:Number(itemForm.sale_rate||0), purchase_rate:Number(itemForm.purchase_rate||0), opening_stock:Number(itemForm.opening_stock||0), minimum_stock:Number(itemForm.minimum_stock||0)};
-    const q = editingItem ? supabase.from("item_master").update(payload).eq("id", editingItem) : supabase.from("item_master").insert(payload);
+    const q = editingItem ? db.from("item_master").update(payload).eq("id", editingItem) : db.from("item_master").insert(payload);
     const { error } = await q;
     if (error) return flash(error.message);
     setItemForm(emptyItem); setEditingItem(null); setShowItemForm(false); await loadAll(); flash("Item saved.");
@@ -336,7 +317,7 @@ export default function Home() {
 
   async function deleteItem(id) {
     if (!confirm("Delete this item?")) return;
-    const { error } = await supabase.from("item_master").update({status:false}).eq("id", id);
+    const { error } = await db.from("item_master").update({status:false}).eq("id", id);
     if (error) return flash(error.message);
     await loadAll(); flash("Item deleted.");
   }
@@ -345,7 +326,7 @@ export default function Home() {
     e.preventDefault();
     if (!receiverForm.receiver_name.trim()) return flash("Receiver name is required.");
     const payload = {...receiverForm, opening_balance:Number(receiverForm.opening_balance||0), current_balance:Number(receiverForm.current_balance || receiverForm.opening_balance || 0)};
-    const q = editingReceiver ? supabase.from("receivers").update(payload).eq("id", editingReceiver) : supabase.from("receivers").insert(payload);
+    const q = editingReceiver ? db.from("receivers").update(payload).eq("id", editingReceiver) : db.from("receivers").insert(payload);
     const { error } = await q;
     if (error) return flash(error.message);
     setReceiverForm(emptyReceiver); setEditingReceiver(null); setShowReceiverForm(false); await loadAll(); flash("Receiver saved.");
@@ -353,7 +334,7 @@ export default function Home() {
 
   async function deleteReceiver(id) {
     if (!confirm("Delete this receiver?")) return;
-    const { error } = await supabase.from("receivers").update({status:false}).eq("id", id);
+    const { error } = await db.from("receivers").update({status:false}).eq("id", id);
     if (error) return flash(error.message);
     await loadAll(); flash("Receiver deleted.");
   }
@@ -362,7 +343,7 @@ export default function Home() {
     e.preventDefault();
     if (!supplierForm.supplier_name.trim()) return flash("Supplier name is required.");
     const payload = {...supplierForm, opening_due:Number(supplierForm.opening_due||0)};
-    const q = editingSupplier ? supabase.from("suppliers").update(payload).eq("id", editingSupplier) : supabase.from("suppliers").insert(payload);
+    const q = editingSupplier ? db.from("suppliers").update(payload).eq("id", editingSupplier) : db.from("suppliers").insert(payload);
     const { error } = await q;
     if (error) return flash(error.message);
     setSupplierForm(emptySupplier); setEditingSupplier(null); setShowSupplierForm(false); await loadAll(); flash("Supplier saved.");
@@ -370,7 +351,7 @@ export default function Home() {
 
   async function deleteSupplier(id) {
     if (!confirm("Delete this supplier?")) return;
-    const { error } = await supabase.from("suppliers").update({status:false}).eq("id", id);
+    const { error } = await db.from("suppliers").update({status:false}).eq("id", id);
     if (error) return flash(error.message);
     await loadAll(); flash("Supplier deleted.");
   }
@@ -460,32 +441,32 @@ export default function Home() {
       if(Number(x.qty)>available) return flash(`Insufficient stock at purchase rate ${money(x.cost_rate)} for ${items.find(i=>i.id===Number(x.item_id))?.item_name || "item"}. Available: ${available}.`);
       if(Number(x.cost_rate||0)<=0) return flash(`Select a valid purchase rate for ${items.find(i=>i.id===Number(x.item_id))?.item_name || "item"}.`);
     }
-    const { data: inv, error: invErr } = await supabase.rpc("next_invoice_number");
+    const { data: inv, error: invErr } = await db.rpc("next_invoice_number");
     if (invErr) return flash("Run the supplied Supabase SQL first. Invoice number function is missing.");
-    const { data: sale, error } = await supabase.from("sales").insert({
+    const { data: sale, error } = await db.from("sales").insert({
       invoice_no: inv, invoice_date:saleDate, customer_id:Number(saleCustomer),
       total_amount:saleTotal, paid_amount:paidForSale, due_amount:dueForSale,
       payment_status: salePayment
     }).select().single();
     if (error) return flash(error.message);
     const rows = saleItems.map(x => ({sale_id:sale.id, item_id:Number(x.item_id), rate:Number(x.rate), cost_rate:Number(x.cost_rate||0), qty:Number(x.qty), amount:Number(x.rate)*Number(x.qty)}));
-    const { error:itemErr } = await supabase.from("sale_items").insert(rows);
+    const { error:itemErr } = await db.from("sale_items").insert(rows);
     if (itemErr) return flash(itemErr.message);
     const stockRows = saleItems.map(x => ({transaction_date:saleDate, item_id:Number(x.item_id), transaction_type:"SALE", reference_id:sale.id, qty_in:0, qty_out:Number(x.qty), rate:Number(x.rate), cost_rate:Number(x.cost_rate||0)}));
-    const { error:stockErr } = await supabase.from("stock_transactions").insert(stockRows);
+    const { error:stockErr } = await db.from("stock_transactions").insert(stockRows);
     if (stockErr) return flash(stockErr.message);
     if (paidForSale > 0 && saleReceiver) {
       const collectionNo = `COL-${Date.now()}`;
-      const {data:col,error:colErr}=await supabase.from("collections").insert({
+      const {data:col,error:colErr}=await db.from("collections").insert({
         collection_no:collectionNo, collection_date:saleDate, customer_id:Number(saleCustomer),
         receiver_id:Number(saleReceiver), payment_mode:salePaymentMode, total_amount:paidForSale, remarks:`Payment for ${inv}`
       }).select().single();
       if(colErr) return flash(colErr.message);
-      const {error:allocErr}=await supabase.from("collection_allocations").insert({
+      const {error:allocErr}=await db.from("collection_allocations").insert({
         collection_id:col.id, sale_id:sale.id, amount:paidForSale
       });
       if(allocErr) return flash(allocErr.message);
-      await supabase.from("receivers").update({
+      await db.from("receivers").update({
         current_balance: Number(receivers.find(r=>r.id===Number(saleReceiver))?.current_balance||0)+paidForSale
       }).eq("id",Number(saleReceiver));
     }
@@ -509,7 +490,7 @@ export default function Home() {
     if (!total) return flash("Enter a payment amount.");
 
     const receiver = receivers.find(x=>x.id===Number(paymentReceiver));
-    const {data:col,error} = await supabase.from("collections").insert({
+    const {data:col,error} = await db.from("collections").insert({
       collection_no:`COL-${Date.now()}`,
       collection_date:paymentDate,
       customer_id:Number(paymentCustomer),
@@ -522,7 +503,7 @@ export default function Home() {
 
     if (allocations.length) {
       const rows = allocations.map(([saleId,v])=>({collection_id:col.id,sale_id:Number(saleId),amount:v}));
-      const {error:aErr}=await supabase.from("collection_allocations").insert(rows);
+      const {error:aErr}=await db.from("collection_allocations").insert(rows);
       if (aErr) return flash(aErr.message);
 
       for (const [saleId,v] of allocations) {
@@ -530,7 +511,7 @@ export default function Home() {
         if (!sale) continue;
         const newPaid=Math.min(Number(sale.total_amount),Number(sale.paid_amount||0)+v);
         const newDue=Math.max(0,Number(sale.total_amount)-newPaid);
-        await supabase.from("sales").update({
+        await db.from("sales").update({
           paid_amount:newPaid,
           due_amount:newDue,
           payment_status:newDue===0?"PAID":"PARTIAL"
@@ -539,12 +520,12 @@ export default function Home() {
     }
 
     if (oldDueAmount > 0) {
-      await supabase.from("customers")
+      await db.from("customers")
         .update({opening_due:Math.max(0,Number(customer?.opening_due||0)-oldDueAmount)})
         .eq("id",Number(paymentCustomer));
     }
 
-    await supabase.from("receivers")
+    await db.from("receivers")
       .update({current_balance:Number(receiver?.current_balance||0)+total})
       .eq("id",Number(paymentReceiver));
 
@@ -569,10 +550,10 @@ export default function Home() {
     if(!purchasePaymentReceiver) return flash("Select receiver.");
     const r=receivers.find(x=>x.id===Number(purchasePaymentReceiver));
     const newPaid=Number(pur.paid_amount||0)+amount, newDue=Math.max(0,Number(pur.total_amount)-newPaid);
-    const {error}=await supabase.from("purchases").update({paid_amount:newPaid,due_amount:newDue,payment_status:newDue===0?"PAID":"PARTIAL",receiver_id:Number(purchasePaymentReceiver),payment_mode:purchasePaymentMode}).eq("id",pur.id);
+    const {error}=await db.from("purchases").update({paid_amount:newPaid,due_amount:newDue,payment_status:newDue===0?"PAID":"PARTIAL",receiver_id:Number(purchasePaymentReceiver),payment_mode:purchasePaymentMode}).eq("id",pur.id);
     if(error) return flash(error.message);
-    await supabase.from("receivers").update({current_balance:Number(r?.current_balance||0)-amount}).eq("id",Number(purchasePaymentReceiver));
-    await supabase.from("audit_logs").insert({table_name:"purchases",record_id:pur.id,action:"PAYMENT",details:{amount,payment_date:purchasePaymentDate,remarks:purchasePaymentNote,receiver_id:Number(purchasePaymentReceiver)}}).catch(()=>{});
+    await db.from("receivers").update({current_balance:Number(r?.current_balance||0)-amount}).eq("id",Number(purchasePaymentReceiver));
+    await db.from("audit_logs").insert({table_name:"purchases",record_id:pur.id,action:"PAYMENT",details:{amount,payment_date:purchasePaymentDate,remarks:purchasePaymentNote,receiver_id:Number(purchasePaymentReceiver)}}).catch(()=>{});
     setPurchasePaymentId(null);setPurchasePaymentAmount("");setPurchasePaymentReceiver("");setPurchasePaymentMode("CASH");setPurchasePaymentNote("");await loadAll();flash(`Payment recorded for ${pur.purchase_no}.`);
   }
 
@@ -604,12 +585,12 @@ export default function Home() {
       // Restore the old receiver balance before applying the edited payment.
       if (old.receiver_id && Number(old.paid_amount||0)) {
         const oldReceiver = receivers.find(r=>r.id===Number(old.receiver_id));
-        await supabase.from("receivers").update({
+        await db.from("receivers").update({
           current_balance:Number(oldReceiver?.current_balance||0)+Number(old.paid_amount||0)
         }).eq("id",Number(old.receiver_id));
       }
 
-      const {error:uErr}=await supabase.from("purchases").update({
+      const {error:uErr}=await db.from("purchases").update({
         purchase_date:purchaseDate,
         supplier_id:Number(purchaseSupplier),
         total_amount:purchaseTotal,
@@ -626,21 +607,21 @@ export default function Home() {
       }).eq("id",Number(editingPurchase));
       if (uErr) return flash(uErr.message);
 
-      await supabase.from("purchase_items").delete().eq("purchase_id",Number(editingPurchase));
-      await supabase.from("stock_transactions").delete().eq("reference_id",Number(editingPurchase)).eq("transaction_type","PURCHASE");
+      await db.from("purchase_items").delete().eq("purchase_id",Number(editingPurchase));
+      await db.from("stock_transactions").delete().eq("reference_id",Number(editingPurchase)).eq("transaction_type","PURCHASE");
 
       const rows=purchaseItems.map(x=>({purchase_id:Number(editingPurchase),item_id:Number(x.item_id),rate:Number(x.rate),qty:Number(x.qty),amount:Number(x.rate)*Number(x.qty)}));
-      const {error:piErr}=await supabase.from("purchase_items").insert(rows);
+      const {error:piErr}=await db.from("purchase_items").insert(rows);
       if(piErr) return flash(piErr.message);
 
       const stockRows=purchaseItems.map(x=>({transaction_date:purchaseDate,item_id:Number(x.item_id),transaction_type:"PURCHASE",reference_id:Number(editingPurchase),qty_in:Number(x.qty),qty_out:0,rate:Number(x.rate)}));
-      const {error:stErr}=await supabase.from("stock_transactions").insert(stockRows);
+      const {error:stErr}=await db.from("stock_transactions").insert(stockRows);
       if(stErr) return flash(stErr.message);
 
       if(paidForPurchase && purchaseReceiver){
         const r=receivers.find(x=>x.id===Number(purchaseReceiver));
         const baseBalance = Number(r?.current_balance||0) + (old.receiver_id && Number(old.receiver_id)===Number(purchaseReceiver) ? Number(old.paid_amount||0) : 0);
-        await supabase.from("receivers").update({
+        await db.from("receivers").update({
           current_balance:baseBalance-paidForPurchase
         }).eq("id",Number(purchaseReceiver));
       }
@@ -650,20 +631,20 @@ export default function Home() {
       for(const ex of oldExpenses){
         if(ex.paid_by==="Business"&&ex.receiver_id){
           const rr=receivers.find(r=>r.id===Number(ex.receiver_id));
-          if(rr) await supabase.from("receivers").update({current_balance:Number(rr.current_balance||0)+Number(ex.amount||0)}).eq("id",Number(rr.id));
+          if(rr) await db.from("receivers").update({current_balance:Number(rr.current_balance||0)+Number(ex.amount||0)}).eq("id",Number(rr.id));
         }
       }
-      await supabase.from("expenses").delete().eq("reference_type","PURCHASE").eq("reference_id",Number(editingPurchase));
+      await db.from("expenses").delete().eq("reference_type","PURCHASE").eq("reference_id",Number(editingPurchase));
       const expenseRows=[];
       const typeMap={transport:"Transportation",loading:"Loading & Unloading",unloading:"Loading & Unloading"};
       if(Number(purchaseTransport)>0) expenseRows.push({expense_date:purchaseDate,expense_type_id:expenseTypes.find(x=>x.type_name===typeMap.transport)?.id,amount:Number(purchaseTransport),paid_by:purchaseChargesPaidBy,receiver_id:purchaseChargesPaidBy==="Business"&&purchaseChargesReceiver?Number(purchaseChargesReceiver):null,reference_type:"PURCHASE",reference_id:Number(editingPurchase),remarks:`Transportation charges for ${old.purchase_no}`});
       if(Number(purchaseLoading)>0) expenseRows.push({expense_date:purchaseDate,expense_type_id:expenseTypes.find(x=>x.type_name===typeMap.loading)?.id,amount:Number(purchaseLoading),paid_by:purchaseChargesPaidBy,receiver_id:purchaseChargesPaidBy==="Business"&&purchaseChargesReceiver?Number(purchaseChargesReceiver):null,reference_type:"PURCHASE",reference_id:Number(editingPurchase),remarks:`Loading charges for ${old.purchase_no}`});
       if(Number(purchaseUnloading)>0) expenseRows.push({expense_date:purchaseDate,expense_type_id:expenseTypes.find(x=>x.type_name===typeMap.unloading)?.id,amount:Number(purchaseUnloading),paid_by:purchaseChargesPaidBy,receiver_id:purchaseChargesPaidBy==="Business"&&purchaseChargesReceiver?Number(purchaseChargesReceiver):null,reference_type:"PURCHASE",reference_id:Number(editingPurchase),remarks:`Unloading charges for ${old.purchase_no}`});
       if(expenseRows.length){
-        await supabase.from("expenses").insert(expenseRows.filter(x=>x.expense_type_id));
+        await db.from("expenses").insert(expenseRows.filter(x=>x.expense_type_id));
         if(purchaseChargesPaidBy==="Business"&&purchaseChargesReceiver){
           const rr=receivers.find(r=>r.id===Number(purchaseChargesReceiver));
-          if(rr) await supabase.from("receivers").update({current_balance:Number(rr.current_balance||0)-purchaseChargesTotal}).eq("id",Number(rr.id));
+          if(rr) await db.from("receivers").update({current_balance:Number(rr.current_balance||0)-purchaseChargesTotal}).eq("id",Number(rr.id));
         }
       }
 
@@ -673,9 +654,9 @@ export default function Home() {
       return;
     }
 
-    const {data:no,error:noErr}=await supabase.rpc("next_purchase_number");
+    const {data:no,error:noErr}=await db.rpc("next_purchase_number");
     if (noErr) return flash("Run the supplied Supabase SQL first. Purchase number function is missing.");
-    const {data:pur,error}=await supabase.from("purchases").insert({
+    const {data:pur,error}=await db.from("purchases").insert({
       purchase_no:no,purchase_date:purchaseDate,supplier_id:Number(purchaseSupplier),
       total_amount:purchaseTotal,paid_amount:paidForPurchase,due_amount:dueForPurchase,
       payment_status:purchasePayment,receiver_id:purchaseReceiver?Number(purchaseReceiver):null,
@@ -688,14 +669,14 @@ export default function Home() {
     }).select().single();
     if (error) return flash(error.message);
     const rows=purchaseItems.map(x=>({purchase_id:pur.id,item_id:Number(x.item_id),rate:Number(x.rate),qty:Number(x.qty),amount:Number(x.rate)*Number(x.qty)}));
-    const {error:piErr}=await supabase.from("purchase_items").insert(rows);
+    const {error:piErr}=await db.from("purchase_items").insert(rows);
     if(piErr) return flash(piErr.message);
     const stockRows=purchaseItems.map(x=>({transaction_date:purchaseDate,item_id:Number(x.item_id),transaction_type:"PURCHASE",reference_id:pur.id,qty_in:Number(x.qty),qty_out:0,rate:Number(x.rate)}));
-    const {error:stErr}=await supabase.from("stock_transactions").insert(stockRows);
+    const {error:stErr}=await db.from("stock_transactions").insert(stockRows);
     if(stErr) return flash(stErr.message);
     if(paidForPurchase && purchaseReceiver){
       const r=receivers.find(x=>x.id===Number(purchaseReceiver));
-      await supabase.from("receivers").update({current_balance:Number(r?.current_balance||0)-paidForPurchase}).eq("id",Number(purchaseReceiver));
+      await db.from("receivers").update({current_balance:Number(r?.current_balance||0)-paidForPurchase}).eq("id",Number(purchaseReceiver));
     }
     const expenseRows=[];
     const transportType=expenseTypes.find(x=>x.type_name==="Transportation");
@@ -704,10 +685,10 @@ export default function Home() {
     if(Number(purchaseLoading)>0&&loadingType) expenseRows.push({expense_date:purchaseDate,expense_type_id:loadingType.id,amount:Number(purchaseLoading),paid_by:purchaseChargesPaidBy,receiver_id:purchaseChargesPaidBy==="Business"&&purchaseChargesReceiver?Number(purchaseChargesReceiver):null,reference_type:"PURCHASE",reference_id:pur.id,remarks:`Loading charges for ${no}`});
     if(Number(purchaseUnloading)>0&&loadingType) expenseRows.push({expense_date:purchaseDate,expense_type_id:loadingType.id,amount:Number(purchaseUnloading),paid_by:purchaseChargesPaidBy,receiver_id:purchaseChargesPaidBy==="Business"&&purchaseChargesReceiver?Number(purchaseChargesReceiver):null,reference_type:"PURCHASE",reference_id:pur.id,remarks:`Unloading charges for ${no}`});
     if(expenseRows.length){
-      await supabase.from("expenses").insert(expenseRows);
+      await db.from("expenses").insert(expenseRows);
       if(purchaseChargesPaidBy==="Business"&&purchaseChargesReceiver){
         const rr=receivers.find(r=>r.id===Number(purchaseChargesReceiver));
-        if(rr) await supabase.from("receivers").update({current_balance:Number(rr.current_balance||0)-purchaseChargesTotal}).eq("id",Number(rr.id));
+        if(rr) await db.from("receivers").update({current_balance:Number(rr.current_balance||0)-purchaseChargesTotal}).eq("id",Number(rr.id));
       }
     }
     setPurchaseSupplier("");setPurchaseItems([{item_id:"",rate:0,qty:1}]);setPurchasePayment("DUE");setPurchasePaid(0);setPurchaseReceiver("");setPurchasePaymentMode("CASH");setPurchaseTransport(0);setPurchaseLoading(0);setPurchaseUnloading(0);setPurchaseChargesPaidBy("Business");setPurchaseChargesReceiver("");
@@ -740,12 +721,12 @@ export default function Home() {
       const old=expenses.find(x=>x.id===Number(editingExpense));
       if(old?.paid_by==="Business"&&old.receiver_id){
         const r=receivers.find(x=>x.id===Number(old.receiver_id));
-        if(r) await supabase.from("receivers").update({current_balance:Number(r.current_balance||0)+Number(old.amount||0)}).eq("id",Number(old.receiver_id));
+        if(r) await db.from("receivers").update({current_balance:Number(r.current_balance||0)+Number(old.amount||0)}).eq("id",Number(old.receiver_id));
       }
-      const {error}=await supabase.from("expenses").update(payload).eq("id",Number(editingExpense));
+      const {error}=await db.from("expenses").update(payload).eq("id",Number(editingExpense));
       if(error) return flash(error.message);
     }else{
-      const {error}=await supabase.from("expenses").insert(payload);
+      const {error}=await db.from("expenses").insert(payload);
       if(error) return flash(error.message);
     }
     if(payload.paid_by==="Business"&&payload.receiver_id){
@@ -753,7 +734,7 @@ export default function Home() {
       const base=Number(r?.current_balance||0);
       const old=editingExpense?expenses.find(x=>x.id===Number(editingExpense)):null;
       const same=old?.paid_by==="Business"&&Number(old.receiver_id)===Number(payload.receiver_id);
-      await supabase.from("receivers").update({current_balance:(same?base+Number(old.amount||0):base)-Number(payload.amount)}).eq("id",Number(payload.receiver_id));
+      await db.from("receivers").update({current_balance:(same?base+Number(old.amount||0):base)-Number(payload.amount)}).eq("id",Number(payload.receiver_id));
     }
     setShowExpenseForm(false);setEditingExpense(null);setExpenseForm({...emptyExpense});await loadAll();flash(editingExpense?"Expense updated successfully.":"Expense saved successfully.");
   }
@@ -763,8 +744,8 @@ export default function Home() {
     if(!expenseTypeForm.type_name.trim()) return flash("Expense type name is required.");
     const payload={type_name:expenseTypeForm.type_name.trim(),description:expenseTypeForm.description||""};
     const q=editingExpenseType
-      ? supabase.from("expense_types").update(payload).eq("id",Number(editingExpenseType))
-      : supabase.from("expense_types").insert(payload);
+      ? db.from("expense_types").update(payload).eq("id",Number(editingExpenseType))
+      : db.from("expense_types").insert(payload);
     const {error}=await q;
     if(error) return flash(error.message);
     setShowExpenseTypeForm(false);setEditingExpenseType(null);setExpenseTypeForm({type_name:"",description:""});await loadAll();flash("Expense type saved.");
@@ -874,7 +855,7 @@ export default function Home() {
         <label>Password<input type="password" autoComplete="current-password" value={loginForm.password} onChange={e=>setLoginForm(v=>({...v,password:e.target.value}))} placeholder="Enter password"/></label>
         <button className="btn primary login-submit" disabled={loginBusy}>{loginBusy?"Signing in…":`Sign in as ${loginRole==="admin"?"Admin":"Receiver"}`}</button>
       </form>
-      <small className="login-help">User accounts are managed in Supabase Authentication. Each account must have a matching User Profile.</small>
+      <small className="login-help">Login is managed securely by B Reddy Sales. Passwords are stored as secure hashes and sessions are protected by the server.</small>
     </div>
   </div>
 }
@@ -1223,23 +1204,23 @@ function Sidebar() {
       // Restore old accounting first.
       if(oldReceiverId && oldAmount){
         const oldR=receivers.find(r=>r.id===oldReceiverId);
-        await supabase.from("receivers").update({current_balance:Number(oldR?.current_balance||0)-oldAmount}).eq("id",oldReceiverId);
+        await db.from("receivers").update({current_balance:Number(oldR?.current_balance||0)-oldAmount}).eq("id",oldReceiverId);
       }
       for(const a of allocations){
         const sale=sales.find(s=>s.id===Number(a.sale_id));
         if(sale){
           const paid=Math.max(0,Number(sale.paid_amount||0)-Number(a.amount||0));
           const due=Math.max(0,Number(sale.total_amount||0)-paid);
-          await supabase.from("sales").update({paid_amount:paid,due_amount:due,payment_status:due===0?"PAID":paid>0?"PARTIAL":"DUE"}).eq("id",sale.id);
+          await db.from("sales").update({paid_amount:paid,due_amount:due,payment_status:due===0?"PAID":paid>0?"PARTIAL":"DUE"}).eq("id",sale.id);
         }
       }
       if(!allocations.length){
         const customer=customers.find(x=>x.id===Number(c.customer_id));
-        if(customer) await supabase.from("customers").update({opening_due:Number(customer.opening_due||0)+oldAmount}).eq("id",customer.id);
+        if(customer) await db.from("customers").update({opening_due:Number(customer.opening_due||0)+oldAmount}).eq("id",customer.id);
       }
 
       // Update collection header.
-      const {error:uErr}=await supabase.from("collections").update({
+      const {error:uErr}=await db.from("collections").update({
         collection_date:collectionForm.collection_date,
         receiver_id:newReceiverId,
         payment_mode:collectionForm.payment_mode||"CASH",
@@ -1253,13 +1234,13 @@ function Sidebar() {
         const a=allocations[0], sale=sales.find(s=>s.id===Number(a.sale_id));
         if(!sale) return flash("Linked invoice was not found.");
         const applied=Math.min(Number(sale.total_amount),newAmount);
-        await supabase.from("collection_allocations").update({amount:applied}).eq("id",a.id);
+        await db.from("collection_allocations").update({amount:applied}).eq("id",a.id);
         const paid=Number(sale.paid_amount||0)+applied;
         const due=Math.max(0,Number(sale.total_amount)-paid);
-        await supabase.from("sales").update({paid_amount:paid,due_amount:due,payment_status:due===0?"PAID":"PARTIAL"}).eq("id",sale.id);
+        await db.from("sales").update({paid_amount:paid,due_amount:due,payment_status:due===0?"PAID":"PARTIAL"}).eq("id",sale.id);
       } else if(allocations.length===0){
         const customer=customers.find(x=>x.id===Number(c.customer_id));
-        if(customer) await supabase.from("customers").update({opening_due:Math.max(0,Number(customer.opening_due||0)-newAmount)}).eq("id",customer.id);
+        if(customer) await db.from("customers").update({opening_due:Math.max(0,Number(customer.opening_due||0)-newAmount)}).eq("id",customer.id);
       } else {
         // Multi-invoice collections keep their existing allocations; amount can still be edited as a header value.
         for(const a of allocations){
@@ -1267,14 +1248,14 @@ function Sidebar() {
           if(sale){
             const paid=Number(sale.paid_amount||0)+Number(a.amount||0);
             const due=Math.max(0,Number(sale.total_amount||0)-paid);
-            await supabase.from("sales").update({paid_amount:paid,due_amount:due,payment_status:due===0?"PAID":"PARTIAL"}).eq("id",sale.id);
+            await db.from("sales").update({paid_amount:paid,due_amount:due,payment_status:due===0?"PAID":"PARTIAL"}).eq("id",sale.id);
           }
         }
       }
       const newR=receivers.find(r=>r.id===newReceiverId);
       if(newR){
         const baseBalance=Number(newR.current_balance||0)-(oldReceiverId===newReceiverId?oldAmount:0);
-        await supabase.from("receivers").update({current_balance:baseBalance+newAmount}).eq("id",newReceiverId);
+        await db.from("receivers").update({current_balance:baseBalance+newAmount}).eq("id",newReceiverId);
       }
 
       setEditingCollection(null); await loadAll(); flash("Collection updated successfully.");
