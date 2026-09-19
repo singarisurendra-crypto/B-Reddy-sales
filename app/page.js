@@ -231,10 +231,6 @@ export default function Home() {
 
   async function loadAll() {
     setLoading(true);
-    const withTimeout = (promise, ms = 15000) => Promise.race([
-      Promise.resolve(promise),
-      new Promise(resolve => setTimeout(() => resolve({data: [], error: {message: "Request timed out. Please refresh and try again."}}), ms))
-    ]);
     const queries = await Promise.all([
       db.from("customers").select("*").eq("status", true).order("customer_name"),
       db.from("item_master").select("*").eq("status", true).order("item_name"),
@@ -247,15 +243,14 @@ export default function Home() {
       db.from("expense_types").select("*").eq("status", true).order("type_name"),
       db.from("expenses").select("*, expense_types(type_name), receivers(receiver_name)").order("expense_date", { ascending: false }),
       db.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(500),
-      profile?.role === "admin" ? db.from("user_profiles").select("*, receivers(receiver_name)").order("full_name") : Promise.resolve({data:[],error:null})
-    ].map(q => withTimeout(q)));
-    const [c,i,r,s,sa,co,pu,st,et,ex,au,up] = queries;
+    ]);
+    const [c,i,r,s,sa,co,pu,st,et,ex,au] = queries;
     const firstError = [c,i,r,s,sa,co,pu,st,et,ex,au].find(x => x.error);
     if (firstError) setNotice(firstError.error.message);
     setCustomers(c.data || []); setItems(i.data || []); setReceivers(r.data || []);
     setSuppliers(s.data || []); setSales(sa.data || []); setCollections(co.data || []);
     setPurchases(pu.data || []); setStockTxns(st.data || []);
-    setExpensesTypes(et.data || []); setExpenses(ex.data || []); setAuditLogs(au.data || []);
+    setExpenseTypes(et.data || []); setExpenses(ex.data || []); setAuditLogs(au.data || []);
     setLoading(false);
   }
 
@@ -1380,7 +1375,6 @@ function Sidebar() {
       {id:"receivers", label:"Receivers", icon:"💰", count:receivers.length},
       {id:"suppliers", label:"Suppliers", icon:"🏢", count:suppliers.length},
       {id:"expense_types", label:"Expense Types", icon:"🧾", count:expenseTypes.length},
-      {id:"user_profiles", label:"User Profiles", icon:"👤", count:userProfiles.length}
     ];
 
     return <>
@@ -1482,11 +1476,6 @@ function Sidebar() {
         <Table><thead><tr><th>Expense Type</th><th>Description</th><th>Action</th></tr></thead><tbody>{expenseTypes.map(t=><tr key={t.id}><td>{t.type_name}</td><td>{t.description||"-"}</td><td><button className="text-btn" onClick={()=>{setEditingExpenseType(t.id);setExpenseTypeForm({type_name:t.type_name,description:t.description||""});setShowExpenseTypeForm(true)}}>Edit</button></td></tr>)}{!expenseTypes.length&&<Empty col="3" text="No expense types yet. Add one to use Expenses."/>}</tbody></Table>
       </div>}
 
-      {masterTab==="user_profiles" && <div className="panel">
-        <div className="panel-title-row"><div><h3>User Profiles</h3><small>Role and receiver mapping for Supabase login accounts</small></div></div>
-        <div className="user-profile-note">Create the login account first in Supabase Authentication. Then add/update its profile using the SQL shown in <b>supabase/auth_setup.sql</b>. This screen is read-only so passwords are never stored in the application database.</div>
-        <Table><thead><tr><th>User</th><th>Role</th><th>Receiver</th><th>Status</th></tr></thead><tbody>{userProfiles.map(u=><tr key={u.id}><td><b>{u.full_name}</b><small className="muted-block">{u.email||u.id}</small></td><td><span className={u.role==="admin"?"role-badge admin":"role-badge receiver"}>{u.role}</span></td><td>{u.receivers?.receiver_name||"-"}</td><td>{u.status?"Active":"Inactive"}</td></tr>)}{!userProfiles.length&&<Empty col="4" text="No user profiles configured yet."/>}</tbody></Table>
-      </div>}
         </main>
       </div>
 
