@@ -1514,295 +1514,44 @@ function Sidebar() {
     const to=reportDateTo||today();
     const q=String(reportSearch||"").trim().toLowerCase();
     const inRange=(date)=>!!date && date>=from && date<=to;
-
-    const dueRows=sales.filter(s=>
-      Number(s.due_amount)>0 &&
-      s.invoice_date<=to &&
-      (!q ||
-        String(s.invoice_no||"").toLowerCase().includes(q) ||
-        String(s.customers?.customer_name||"").toLowerCase().includes(q))
-    );
-
-    const reportSales=sales.filter(s=>
-      inRange(s.invoice_date) &&
-      (!q ||
-        String(s.invoice_no||"").toLowerCase().includes(q) ||
-        String(s.customers?.customer_name||"").toLowerCase().includes(q))
-    );
-
-    const reportCollections=collections.filter(c=>
-      inRange(c.collection_date) &&
-      (!q ||
-        String(c.collection_no||"").toLowerCase().includes(q) ||
-        String(c.customers?.customer_name||"").toLowerCase().includes(q))
-    );
-
-    const reportStock=items.map(it=>({
-      it,
-      qty:stockTxns
-        .filter(t=>t.item_id===it.id&&t.transaction_date<=to)
-        .reduce((a,t)=>a+Number(t.qty_in||0)-Number(t.qty_out||0),Number(it.opening_stock||0))
-    }));
-
+    const dueRows=sales.filter(s=>Number(s.due_amount)>0&&s.invoice_date<=to&&(!q||String(s.invoice_no||"").toLowerCase().includes(q)||String(s.customers?.customer_name||"").toLowerCase().includes(q)));
+    const reportSales=sales.filter(s=>inRange(s.invoice_date)&&(!q||String(s.invoice_no||"").toLowerCase().includes(q)||String(s.customers?.customer_name||"").toLowerCase().includes(q)));
+    const reportCollections=collections.filter(c=>inRange(c.collection_date)&&(!q||String(c.collection_no||"").toLowerCase().includes(q)||String(c.customers?.customer_name||"").toLowerCase().includes(q)));
+    const reportStock=items.map(it=>({it,qty:stockTxns.filter(t=>t.item_id===it.id&&t.transaction_date<=to).reduce((a,t)=>a+Number(t.qty_in||0)-Number(t.qty_out||0),Number(it.opening_stock||0))}));
     const reportOptions=[
-      {id:"invoices",label:"Invoice Report",icon:"🧾",count:reportSales.length},
-      {id:"stock",label:"Stock Report",icon:"📦",count:reportStock.length},
-      {id:"collections",label:"Collection Report",icon:"💰",count:reportCollections.length},
-      {id:"dues",label:"Due Report",icon:"⚠️",count:dueRows.length}
+      {id:"invoices",label:"Invoice Report",icon:"🧾"},
+      {id:"stock",label:"Stock Report",icon:"📦"},
+      {id:"collections",label:"Collection Report",icon:"💰"},
+      {id:"dues",label:"Due Report",icon:"⚠️"}
     ];
-
-    function clearReportFilters(){
-      setReportDateFrom("");
-      setReportDateTo(today());
-      setReportSearch("");
-    }
-
     function downloadReportPdf(){
-      const doc=new jsPDF();
-      const title=reportOptions.find(x=>x.id===reportTab)?.label||"Report";
-      doc.setFontSize(16);
-      doc.text(`B REDDY SALES - ${title}`,14,16);
-      doc.setFontSize(9);
-      doc.text(`From: ${reportDateFrom||"-"} | To: ${reportDateTo||today()}`,14,23);
+      const doc=new jsPDF(); const title=reportOptions.find(x=>x.id===reportTab)?.label||"Report";
+      doc.setFontSize(16);doc.text(`B REDDY SALES - ${title}`,14,16);doc.setFontSize(9);doc.text(`From: ${reportDateFrom||"-"} | To: ${reportDateTo||today()}`,14,23);
       let y=32;
-
-      const rows=reportTab==="invoices"
-        ? reportSales.map(x=>[
-            x.invoice_no,
-            x.customers?.customer_name||"-",
-            x.invoice_date,
-            money(x.total_amount),
-            money(x.paid_amount),
-            money(x.due_amount)
-          ])
-        :reportTab==="collections"
-        ? reportCollections.map(x=>[
-            x.collection_no,
-            x.collection_date,
-            x.customers?.customer_name||"-",
-            x.receivers?.receiver_name||"-",
-            x.payment_mode==="PHONEPE"?"PhonePe":"Cash",
-            money(x.total_amount),
-            x.remarks||"-"
-          ])
-        :reportTab==="stock"
-        ? reportStock.map(x=>[
-            x.it.master_name||"-",
-            x.it.item_name,
-            String(x.qty),
-            money(x.it.sale_rate)
-          ])
-        :dueRows.map(x=>[
-            x.invoice_no,
-            x.customers?.customer_name||"-",
-            x.invoice_date,
-            money(x.total_amount),
-            money(x.due_amount)
-          ]);
-
-      const heads=reportTab==="invoices"
-        ?["Invoice","Customer","Date","Amount","Paid","Due"]
-        :reportTab==="collections"
-        ?["Collection","Date","Customer","Receiver","Received As","Amount","Remarks"]
-        :reportTab==="stock"
-        ?["Master","Item","Stock","Sale Rate"]
-        :["Invoice","Customer","Date","Amount","Due"];
-
-      doc.setFont("helvetica","bold");
-      doc.text(heads.join(" | "),14,y);
-      y+=7;
-      doc.setFont("helvetica","normal");
-
-      rows.forEach(r=>{
-        const line=r.join(" | ");
-        const wrapped=doc.splitTextToSize(line,180);
-        if(y+wrapped.length*5>285){
-          doc.addPage();
-          y=18;
-          doc.setFont("helvetica","bold");
-          doc.text(heads.join(" | "),14,y);
-          y+=7;
-          doc.setFont("helvetica","normal");
-        }
-        doc.text(wrapped,14,y);
-        y+=Math.max(5,wrapped.length*5);
-      });
-
+      const rows=reportTab==="invoices"?reportSales.map(x=>[x.invoice_no,x.customers?.customer_name||"-",x.invoice_date,money(x.total_amount),money(x.paid_amount),money(x.due_amount)])
+        :reportTab==="collections"?reportCollections.map(x=>[x.collection_no,x.collection_date,x.customers?.customer_name||"-",x.receivers?.receiver_name||"-",x.payment_mode==="PHONEPE"?"PhonePe":"Cash",money(x.total_amount),x.remarks||"-"])
+        :reportTab==="stock"?reportStock.map(x=>[x.it.master_name||"-",x.it.item_name,String(x.qty),money(x.it.sale_rate)])
+        :dueRows.map(x=>[x.invoice_no,x.customers?.customer_name||"-",x.invoice_date,money(x.total_amount),money(x.due_amount)]);
+      const heads=reportTab==="invoices"?["Invoice","Customer","Date","Amount","Paid","Due"]:reportTab==="collections"?["Collection","Date","Customer","Receiver","Received As","Amount","Remarks"]:reportTab==="stock"?["Master","Item","Stock","Sale Rate"]:["Invoice","Customer","Date","Amount","Due"];
+      doc.setFont("helvetica","bold");doc.text(heads.join(" | "),14,y);y+=7;doc.setFont("helvetica","normal");
+      rows.forEach(r=>{const line=r.join(" | ");const wrapped=doc.splitTextToSize(line,180);if(y+wrapped.length*5>285){doc.addPage();y=18;doc.setFont("helvetica","bold");doc.text(heads.join(" | "),14,y);y+=7;doc.setFont("helvetica","normal")}doc.text(wrapped,14,y);y+=Math.max(5,wrapped.length*5)});
       doc.save(`${title.replace(/\s+/g,"-").toLowerCase()}-${reportDateTo||today()}.pdf`);
     }
-
     return <>
       <Header title="Reports"/>
-
-      <div className="report-master-layout">
-        <aside className="report-master-sidebar">
-          <div className="report-master-sidebar-title">REPORTS</div>
-
-          <div className="report-master-sidebar-list">
-            {reportOptions.map(r=>(
-              <button
-                key={r.id}
-                type="button"
-                className={reportTab===r.id ? "report-master-side-btn active" : "report-master-side-btn"}
-                onClick={()=>setReportTab(r.id)}
-              >
-                <span className="report-master-side-icon">{r.icon}</span>
-                <span className="report-master-side-label">{r.label}</span>
-                <span className="report-master-side-count">{r.count}</span>
-              </button>
-            ))}
-          </div>
-        </aside>
-
-        <main className="report-master-content">
-          <div className="panel report-selected-panel">
-            <div className="toolbar report-master-toolbar">
-              <div>
-                <h3>{reportOptions.find(r=>r.id===reportTab)?.label||"Reports"}</h3>
-                <small>
-                  {reportTab==="invoices" && "Invoice records"}
-                  {reportTab==="stock" && "Current stock records"}
-                  {reportTab==="collections" && "Customer collection records"}
-                  {reportTab==="dues" && "Outstanding customer dues"}
-                </small>
-              </div>
-
-              <div className="report-master-actions">
-                <button type="button" className="small-btn secondary" onClick={clearReportFilters}>Clear</button>
-                <button type="button" className="small-btn primary" onClick={downloadReportPdf}>↓ Download PDF</button>
-              </div>
-            </div>
-
-            <div className="report-master-filters">
-              <label>
-                From Date
-                <input type="date" value={reportDateFrom} onChange={e=>setReportDateFrom(e.target.value)}/>
-              </label>
-
-              <label>
-                To Date
-                <input type="date" value={reportDateTo} onChange={e=>setReportDateTo(e.target.value)}/>
-              </label>
-
-              <label className="report-master-search">
-                Search
-                <input
-                  placeholder={
-                    reportTab==="collections"
-                      ? "Collection no. / customer"
-                      : reportTab==="stock"
-                      ? "Item / master"
-                      : "Invoice no. / customer"
-                  }
-                  value={reportSearch}
-                  onChange={e=>setReportSearch(e.target.value)}
-                />
-              </label>
-            </div>
-          </div>
-
-          {reportTab==="invoices"&&
-            <div className="panel">
-              <div className="report-heading">
-                <div><h3>Invoice Report</h3><small>{reportSales.length} invoices</small></div>
-              </div>
-              <Table>
-                <thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Amount</th><th>Paid</th><th>Due</th><th>Status</th></tr></thead>
-                <tbody>
-                  {reportSales.map(s=>
-                    <tr key={s.id}>
-                      <td className="link" onClick={()=>{setSelectedInvoice(s);go("invoice-detail")}}>{s.invoice_no}</td>
-                      <td>{s.customers?.customer_name||"-"}</td>
-                      <td>{s.invoice_date}</td>
-                      <td>{money(s.total_amount)}</td>
-                      <td>{money(s.paid_amount)}</td>
-                      <td>{money(s.due_amount)}</td>
-                      <td><Status status={s.payment_status}/></td>
-                    </tr>
-                  )}
-                  {!reportSales.length&&<Empty col="7" text="No invoices for selected period."/>}
-                </tbody>
-              </Table>
-            </div>
-          }
-
-          {reportTab==="stock"&&
-            <div className="panel">
-              <div className="report-heading">
-                <div><h3>Stock Report</h3><small>Stock as on {reportDateTo||today()}</small></div>
-              </div>
-              <Table>
-                <thead><tr><th>Item</th><th>Opening Stock</th><th>Purchases</th><th>Sales</th><th>Available Stock</th></tr></thead>
-                <tbody>
-                  {reportStock.map(({it,qty})=>{
-                    const tx=stockTxns.filter(t=>t.item_id===it.id&&t.transaction_date<=to);
-                    return <tr key={it.id}>
-                      <td>{it.item_name}</td>
-                      <td>{it.opening_stock}</td>
-                      <td>{tx.reduce((a,t)=>a+Number(t.qty_in||0),0)}</td>
-                      <td>{tx.reduce((a,t)=>a+Number(t.qty_out||0),0)}</td>
-                      <td><b>{qty}</b></td>
-                    </tr>
-                  })}
-                  {!reportStock.length&&<Empty col="5" text="No stock items."/>}
-                </tbody>
-              </Table>
-            </div>
-          }
-
-          {reportTab==="collections"&&
-            <div className="panel">
-              <div className="report-heading">
-                <div><h3>Collection Report</h3><small>{reportCollections.length} collections</small></div>
-              </div>
-              <Table>
-                <thead><tr><th>Collection No.</th><th>Date</th><th>Customer</th><th>Receiver</th><th>Received As</th><th>Amount</th><th>Remarks</th></tr></thead>
-                <tbody>
-                  {reportCollections.map(c=>
-                    <tr key={c.id}>
-                      <td className="link" onClick={()=>editCollection(c)}>{c.collection_no||"-"}</td>
-                      <td>{c.collection_date}</td>
-                      <td>{c.customers?.customer_name||"-"}</td>
-                      <td>{c.receivers?.receiver_name||"-"}</td>
-                      <td>{c.payment_mode==="PHONEPE"?"PhonePe":"Cash"}</td>
-                      <td>{money(c.total_amount)}</td>
-                      <td>{c.remarks||"-"}</td>
-                    </tr>
-                  )}
-                  {!reportCollections.length&&<Empty col="7" text="No collections for selected period."/>}
-                </tbody>
-              </Table>
-            </div>
-          }
-
-          {reportTab==="dues"&&
-            <div className="panel">
-              <div className="report-heading">
-                <div><h3>Due Report</h3><small>Outstanding dues up to {reportDateTo||today()}</small></div>
-              </div>
-              <Table>
-                <thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Amount</th><th>Due</th><th>Age</th></tr></thead>
-                <tbody>
-                  {dueRows.map(s=>{
-                    const age=Math.max(0,Math.floor((new Date(to)-new Date(s.invoice_date))/86400000));
-                    return <tr key={s.id}>
-                      <td className="link" onClick={()=>{setSelectedInvoice(s);go("invoice-detail")}}>{s.invoice_no}</td>
-                      <td>{s.customers?.customer_name||"-"}</td>
-                      <td>{s.invoice_date}</td>
-                      <td>{money(s.total_amount)}</td>
-                      <td>{money(s.due_amount)}</td>
-                      <td>{age} days</td>
-                    </tr>
-                  })}
-                  {!dueRows.length&&<Empty col="6" text="No dues."/>}
-                </tbody>
-              </Table>
-            </div>
-          }
-        </main>
+      <div className="panel report-toolbar-panel">
+        <div className="report-toolbar-top"><div className="report-tabs">{reportOptions.map(r=><button key={r.id} type="button" className={reportTab===r.id?"period-btn active":"period-btn"} onClick={()=>setReportTab(r.id)}>{r.icon} {r.label}</button>)}</div><div className="report-actions"><button type="button" className="btn secondary" onClick={()=>{setReportDateFrom("");setReportDateTo(today());setReportSearch("")}}>Clear</button><button type="button" className="btn secondary" onClick={downloadReportPdf}>⬇ Download PDF</button></div></div>
+        <div className="report-filter-inline"><span className="filter-kicker">{reportOptions.find(r=>r.id===reportTab)?.label||"Report"} Filters</span><label>From Date<input type="date" value={reportDateFrom} onChange={e=>setReportDateFrom(e.target.value)}/></label><label>To Date<input type="date" value={reportDateTo} onChange={e=>setReportDateTo(e.target.value)}/></label><label className="report-search-field">Search<input placeholder={reportTab==="collections"?"Collection no. / customer":reportTab==="stock"?"Item / master":"Invoice no. / customer"} value={reportSearch} onChange={e=>setReportSearch(e.target.value)}/></label></div>
+      </div>
+      <div className="reports-content-full">
+        {reportTab==="invoices"&&<div className="panel"><div className="report-heading"><div><h3>Invoice Report</h3><small>{reportSales.length} invoices</small></div></div><Table><thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Amount</th><th>Paid</th><th>Due</th><th>Status</th></tr></thead><tbody>{reportSales.map(s=><tr key={s.id}><td className="link" onClick={()=>{setSelectedInvoice(s);go("invoice-detail")}}>{s.invoice_no}</td><td>{s.customers?.customer_name||"-"}</td><td>{s.invoice_date}</td><td>{money(s.total_amount)}</td><td>{money(s.paid_amount)}</td><td>{money(s.due_amount)}</td><td><Status status={s.payment_status}/></td></tr>)}{!reportSales.length&&<Empty col="7" text="No invoices for selected period."/>}</tbody></Table></div>}
+        {reportTab==="stock"&&<div className="panel"><div className="report-heading"><div><h3>Stock Report</h3><small>Stock as on {reportDateTo||today()}</small></div></div><Table><thead><tr><th>Item</th><th>Opening Stock</th><th>Purchases</th><th>Sales</th><th>Available Stock</th></tr></thead><tbody>{reportStock.map(({it,qty})=>{const tx=stockTxns.filter(t=>t.item_id===it.id&&t.transaction_date<=to);return <tr key={it.id}><td>{it.item_name}</td><td>{it.opening_stock}</td><td>{tx.reduce((a,t)=>a+Number(t.qty_in||0),0)}</td><td>{tx.reduce((a,t)=>a+Number(t.qty_out||0),0)}</td><td><b>{qty}</b></td></tr>})}{!reportStock.length&&<Empty col="5" text="No stock items."/>}</tbody></Table></div>}
+        {reportTab==="collections"&&<div className="panel"><div className="report-heading"><div><h3>Collection Report</h3><small>{reportCollections.length} collections</small></div></div><Table><thead><tr><th>Collection No.</th><th>Date</th><th>Customer</th><th>Receiver</th><th>Received As</th><th>Amount</th><th>Remarks</th></tr></thead><tbody>{reportCollections.map(c=><tr key={c.id}><td className="link" onClick={()=>editCollection(c)}>{c.collection_no||"-"}</td><td>{c.collection_date}</td><td>{c.customers?.customer_name||"-"}</td><td>{c.receivers?.receiver_name||"-"}</td><td>{c.payment_mode==="PHONEPE"?"PhonePe":"Cash"}</td><td>{money(c.total_amount)}</td><td>{c.remarks||"-"}</td></tr>)}{!reportCollections.length&&<Empty col="7" text="No collections for selected period."/>}</tbody></Table></div>}
+        {reportTab==="dues"&&<div className="panel"><div className="report-heading"><div><h3>Due Report</h3><small>Outstanding dues up to {reportDateTo||today()}</small></div></div><Table><thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Amount</th><th>Due</th><th>Age</th></tr></thead><tbody>{dueRows.map(s=>{const age=Math.max(0,Math.floor((new Date(to)-new Date(s.invoice_date))/86400000));return <tr key={s.id}><td className="link" onClick={()=>{setSelectedInvoice(s);go("invoice-detail")}}>{s.invoice_no}</td><td>{s.customers?.customer_name||"-"}</td><td>{s.invoice_date}</td><td>{money(s.total_amount)}</td><td>{money(s.due_amount)}</td><td>{age} days</td></tr>})}{!dueRows.length&&<Empty col="6" text="No dues."/>}</tbody></Table></div>}
       </div>
     </>
   }
+
 
   function AuditModal(){
     if(!auditTarget) return null;
@@ -1836,108 +1585,23 @@ function Sidebar() {
 .cost-picker-button{width:100%;min-height:42px;padding:8px 10px;border:1px solid #cbd5e1;background:#fff;border-radius:8px;display:flex;align-items:center;justify-content:space-between;text-align:left;cursor:pointer}.cost-picker-button.selected{border-color:#2563eb;background:#f8fbff}.modal-backdrop{position:fixed!important;inset:0!important;z-index:5000!important;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.58)}.modal-backdrop .modal{position:relative;z-index:5001}.purchase-rate-modal{max-width:760px}.rate-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}.rate-summary div{padding:12px;border:1px solid #dce5f0;border-radius:10px;background:#f8fafc}.rate-summary span{display:block;font-size:11px;opacity:.6}.rate-summary b{display:block;margin-top:4px}.rate-list{display:grid;gap:10px;max-height:48vh;overflow:auto}.rate-lot{border:1px solid #d8e2ef;background:#fff;border-radius:12px;padding:13px;text-align:left;cursor:pointer}.rate-lot:hover,.rate-lot.selected{border-color:#2563eb;background:#f7faff}.rate-lot-top,.rate-lot-meta{display:flex;justify-content:space-between;gap:12px}.rate-lot-meta{margin-top:7px;font-size:12px;opacity:.7}.header-title{display:flex;align-items:center;gap:10px}
 .metric-card{background:#fff;border:1px solid #e3e9f2;border-left:4px solid #2563eb;border-radius:14px;padding:16px 14px;box-shadow:0 3px 12px rgba(30,60,100,.05)}.metric-card.sales{border-left-color:#2563eb}.metric-card.collections{border-left-color:#16a34a}.metric-card.profit{border-left-color:#dc2626}.metric-card.due{border-left-color:#ef4444}.dashboard-metric-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}.metric-card-top{display:flex;align-items:center;justify-content:space-between;gap:8px}.metric-card-top>span{font-size:12px;font-weight:800}.metric-card>strong{display:block;font-size:24px;margin-top:12px}.metric-periods{display:flex;border:1px solid #dbe3ee;border-radius:8px;overflow:hidden}.metric-periods button{border:0;background:#fff;padding:4px 7px;font-size:10px;font-weight:800;cursor:pointer}.metric-periods button+button{border-left:1px solid #dbe3ee}.metric-periods button.active{background:#2563eb;color:#fff}.customer-payment-head{display:flex;align-items:center;justify-content:space-between;gap:16px}.customer-payment-head h2{margin:4px 0}.customer-payment-head p{margin:0;opacity:.65}.old-due-row{display:grid;grid-template-columns:minmax(220px,300px) 1fr;gap:14px;margin-top:16px}.procurement-payment-strip{background:linear-gradient(135deg,#f7faff,#fff)}.procurement-payment-strip .panel-title-row>strong{font-size:24px}.due-bill-list{display:grid;gap:8px;margin-top:12px}.due-bill-row{display:grid;grid-template-columns:1fr 150px 110px;align-items:center;gap:12px;padding:10px 12px;border:1px solid #e3e9f2;border-radius:10px;background:#fff}.due-bill-row span,.due-bill-row small{display:block;opacity:.65;font-size:11px}.due-bill-row strong{display:block}.report-toolbar-panel{padding:14px}.report-toolbar-top{display:flex;align-items:center;justify-content:space-between;gap:12px}.report-actions{display:flex;gap:8px}.report-filter-inline{display:grid;grid-template-columns:130px 170px 170px minmax(220px,1fr);align-items:end;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid #edf1f6}.report-filter-inline .filter-kicker{align-self:center}.report-search-field{min-width:0}.profile-wrap{position:relative}.profile-avatar{width:38px;height:38px;border-radius:50%;border:2px solid #d7e2f0;background:#fff;color:#1e3a8a;font-weight:800;cursor:pointer}.profile-backdrop{position:fixed;inset:0;z-index:4100}.profile-menu{position:absolute;right:0;top:46px;width:300px;background:#fff;border:1px solid #dbe4ef;border-radius:14px;box-shadow:0 18px 45px rgba(15,23,42,.18);z-index:4101;overflow:hidden}.profile-menu-user{display:flex;gap:12px;padding:16px;border-bottom:1px solid #edf1f5}.profile-menu-avatar{width:44px;height:44px;border-radius:50%;background:#eaf2ff;display:flex;align-items:center;justify-content:center;font-weight:800;color:#1d4ed8}.profile-menu-user b,.profile-menu-user small,.profile-menu-user span{display:block}.profile-menu-user small{font-size:12px;opacity:.65;margin-top:2px;word-break:break-all}.profile-menu-user span{font-size:11px;color:#2563eb;margin-top:5px;font-weight:700}.profile-signout{width:100%;padding:13px 16px;text-align:left;border:0;background:#fff;color:#b91c1c;font-weight:700;cursor:pointer}.profile-signout:hover{background:#fff5f5}.sale-details{grid-template-columns:repeat(4,minmax(0,1fr));align-items:end}.sale-panel{max-width:1250px;margin:0 auto}.purchase-rate-modal .rate-lot{display:block;width:100%}.rate-lot-main{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.rate-lot-main span{display:block}.rate-lot-main small{display:block;opacity:.65;margin-top:3px}.rate-lot-main b{white-space:nowrap}.expense-filter-grid{grid-template-columns:minmax(220px,2fr) repeat(5,minmax(120px,1fr))}.expense-filter-grid .filter-search{min-width:0}
 
-
-.report-master-layout{
-  display:grid;
-  grid-template-columns:220px minmax(0,1fr);
-  gap:18px;
-  align-items:start;
-}
-.report-master-sidebar{
-  background:#fff;
-  border:1px solid #dfe7f2;
-  border-radius:14px;
-  padding:14px 12px;
-  box-shadow:0 4px 16px rgba(30,60,100,.05);
-  position:sticky;
-  top:16px;
-}
-.report-master-sidebar-title{
-  padding:6px 10px 12px;
-  font-size:11px;
-  font-weight:800;
-  letter-spacing:.08em;
-  color:#64748b;
-}
-.report-master-sidebar-list{
-  display:flex;
-  flex-direction:column;
-  gap:4px;
-}
-.report-master-side-btn{
-  width:100%;
-  border:0;
-  background:transparent;
-  border-radius:10px;
-  min-height:46px;
-  padding:8px 10px;
-  display:grid;
-  grid-template-columns:28px minmax(0,1fr) auto;
-  align-items:center;
-  gap:6px;
-  text-align:left;
-  color:#1e293b;
-  cursor:pointer;
-  font:inherit;
-}
-.report-master-side-btn:hover{background:#f4f7fb}
-.report-master-side-btn.active{
-  background:#e7efff;
-  color:#1557d6;
-  font-weight:800;
-}
-.report-master-side-icon{font-size:19px;text-align:center}
-.report-master-side-label{line-height:1.15}
-.report-master-side-count{
-  min-width:26px;
-  height:26px;
-  padding:0 7px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  border-radius:999px;
-  background:#f1f5f9;
-  color:#64748b;
-  font-size:12px;
-  font-weight:800;
-}
-.report-master-side-btn.active .report-master-side-count{
-  background:#fff;
-  color:#2563eb;
-}
-.report-master-content{
-  min-width:0;
-  display:flex;
-  flex-direction:column;
-  gap:18px;
-}
-.report-selected-panel{padding:18px}
-.report-master-toolbar{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:16px;
-  padding:0 0 16px;
-  border-bottom:1px solid #e5eaf1;
-}
-.report-master-toolbar h3{margin:0 0 3px}
-.report-master-toolbar small{opacity:.65}
-.report-master-actions{display:flex;gap:8px;flex-wrap:wrap}
-.report-master-filters{
-  display:grid;
-  grid-template-columns:170px 170px minmax(240px,1fr);
-  gap:12px;
-  padding-top:16px;
-}
-.report-master-filters label{
-  display:flex;
-  flex-direction:column;
-  gap:5px;
-  font-size:13px;
-}
-.report-master-filters input{width:100%}
-.report-master-search{min-width:0}
 @media(max-width:900px){.dashboard-metric-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.report-toolbar-top{align-items:flex-start;flex-direction:column}.report-actions{width:100%}.report-actions .btn{flex:1}.report-filter-inline{grid-template-columns:1fr 1fr}.report-filter-inline .filter-kicker{grid-column:1/-1}.due-bill-row{grid-template-columns:1fr 110px}.due-bill-row .small-btn{grid-column:1/-1}.old-due-row{grid-template-columns:1fr}.profile-menu{position:fixed;right:12px;top:62px;width:min(300px,calc(100vw - 24px))}.mobile-menu-btn{display:inline-flex;width:40px;height:40px;align-items:center;justify-content:center;border:1px solid #d8e1ee;background:#fff;border-radius:10px;font-size:20px}.mobile-overlay{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:3998}.mobile-overlay.open{display:block}.sidebar{position:fixed;left:0;top:0;bottom:0;width:280px;z-index:3999;transform:translateX(-105%);transition:transform .2s ease;box-shadow:10px 0 30px rgba(0,0,0,.18)}.sidebar.mobile-open{transform:translateX(0)}.mobile-close{display:block;position:absolute;right:8px;top:8px;border:0;background:transparent;color:#fff;font-size:26px}.main{margin-left:0!important;width:100%}.dashboard-period-single{grid-template-columns:1fr}.period-buttons.large{width:100%}.period-buttons.large .period-btn{flex:1}.expense-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.expense-filter-grid .filter-search{grid-column:1/-1;min-width:0}.purchase-bill-grid{grid-template-columns:1fr}.purchase-bill-filter{flex-wrap:wrap}.purchase-bill-filter label{max-width:none;width:100%}.rate-summary{grid-template-columns:1fr}.purchase-rate-modal{width:min(96vw,760px)}.purchase-bill-amounts{grid-template-columns:1fr}.purchase-bill-actions{flex-direction:column}}
 @media(max-width:600px){.dashboard-metric-cards{grid-template-columns:1fr}.metric-card>strong{font-size:22px}.metric-periods button{padding:4px 6px}.customer-payment-head{align-items:flex-start;flex-direction:column}.report-filter-inline{grid-template-columns:1fr}.report-filter-inline .filter-kicker{grid-column:auto}.report-tabs{display:grid!important;grid-template-columns:1fr 1fr;width:100%}.report-tabs .period-btn{min-height:40px}.due-bill-row{grid-template-columns:1fr}.header h1{font-size:22px}.header-right{flex:1;justify-content:flex-end}.btn{min-height:40px}.cards{grid-template-columns:1fr 1fr!important}.expense-filter-grid{grid-template-columns:1fr}.expense-filter-grid .filter-search{grid-column:auto}.panel{border-radius:12px}.table-wrap{overflow-x:auto}.modal{width:calc(100vw - 24px)!important;max-height:90vh;overflow:auto}}
-`}</style><div className="app"><Sidebar/><main className="main">{notice&&<div className="notice" style={{position:"fixed",top:"18px",right:"18px",left:"auto",zIndex:3000,maxWidth:"min(620px,calc(100vw - 36px))",whiteSpace:"normal"}}>{notice}</div>}{screen==="dashboard"&&Dashboard()}{screen==="create-sale"&&CreateSale()}{screen==="sales"&&Sales()}{screen==="customers"&&Customers()}{screen==="customer-detail"&&CustomerDetail()}{screen==="invoice-detail"&&InvoiceDetail()}{screen==="collections"&&Collections()}{screen==="customer-payment"&&CustomerPayment()}{screen==="stock"&&Stock()}{screen==="procurement"&&Procurement()}{screen==="purchase"&&Purchase()}{screen==="expenses"&&Expenses()}{screen==="reports"&&Reports()}{screen==="master"&&Master()}</main></div>{openCostPicker!==null&&<PurchaseRateModal index={openCostPicker}/>} {auditTarget&&<AuditModal/>}</>;
+`}@media print{
+  @page{size:A4 portrait;margin:10mm;}
+  html,body{background:#fff!important;width:100%!important;overflow:visible!important;}
+  body *{visibility:hidden!important;}
+  .printable-area,.printable-area *{visibility:visible!important;}
+  .printable-area{position:absolute!important;left:0!important;top:0!important;width:100%!important;max-width:none!important;margin:0!important;padding:0!important;border:0!important;box-shadow:none!important;background:#fff!important;overflow:visible!important;}
+  .printable-area .table-wrap{overflow:visible!important;width:100%!important;max-width:none!important;}
+  .printable-area table{width:100%!important;min-width:0!important;table-layout:fixed!important;border-collapse:collapse!important;font-size:8px!important;}
+  .printable-area th,.printable-area td{padding:4px 3px!important;white-space:normal!important;word-break:break-word!important;overflow-wrap:anywhere!important;}
+  .printable-area th:nth-child(1),.printable-area td:nth-child(1){width:14%!important;}
+  .printable-area th:nth-child(2),.printable-area td:nth-child(2){width:18%!important;}
+  .printable-area th:nth-child(3),.printable-area td:nth-child(3),.printable-area th:nth-child(4),.printable-area td:nth-child(4){width:14%!important;}
+  .printable-area th:nth-child(5),.printable-area td:nth-child(5){width:9%!important;}
+  .printable-area th:nth-child(6),.printable-area td:nth-child(6),.printable-area th:nth-child(7),.printable-area td:nth-child(7){width:15.5%!important;}
+  .printable-area .invoice-head{display:flex!important;justify-content:space-between!important;gap:16px!important;}
+  .printable-area .invoice-total,.printable-area .invoice-profit-summary{break-inside:avoid!important;}
+}</style><div className="app"><Sidebar/><main className="main">{notice&&<div className="notice" style={{position:"fixed",top:"18px",right:"18px",left:"auto",zIndex:3000,maxWidth:"min(620px,calc(100vw - 36px))",whiteSpace:"normal"}}>{notice}</div>}{screen==="dashboard"&&Dashboard()}{screen==="create-sale"&&CreateSale()}{screen==="sales"&&Sales()}{screen==="customers"&&Customers()}{screen==="customer-detail"&&CustomerDetail()}{screen==="invoice-detail"&&InvoiceDetail()}{screen==="collections"&&Collections()}{screen==="customer-payment"&&CustomerPayment()}{screen==="stock"&&Stock()}{screen==="procurement"&&Procurement()}{screen==="purchase"&&Purchase()}{screen==="expenses"&&Expenses()}{screen==="reports"&&Reports()}{screen==="master"&&Master()}</main></div>{openCostPicker!==null&&<PurchaseRateModal index={openCostPicker}/>} {auditTarget&&<AuditModal/>}</>;
 }
