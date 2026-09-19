@@ -49,51 +49,8 @@ function LoginScreen({
 }
 
 
-const responsiveStyles = `
-  .mobile-nav-overlay,.mobile-menu-button,.mobile-close-btn{display:none}
-  @media (max-width: 768px){
-    .app{display:block !important;min-height:100vh}
-    .sidebar{position:fixed !important;top:0 !important;left:0 !important;bottom:0 !important;width:285px !important;max-width:86vw !important;height:100vh !important;z-index:5000 !important;transform:translateX(-105%) !important;transition:transform .22s ease !important;overflow-y:auto !important;box-shadow:12px 0 30px rgba(0,0,0,.24) !important}
-    .sidebar.mobile-open{transform:translateX(0) !important}
-    .mobile-nav-overlay{display:block !important;position:fixed !important;inset:0 !important;border:0 !important;padding:0 !important;margin:0 !important;background:rgba(0,0,0,.45) !important;z-index:4999 !important;cursor:pointer}
-    .mobile-menu-button{display:flex !important;position:fixed !important;top:12px !important;left:12px !important;width:42px !important;height:42px !important;align-items:center !important;justify-content:center !important;border:0 !important;border-radius:10px !important;background:#1d4ed8 !important;color:#fff !important;font-size:24px !important;line-height:1 !important;z-index:4500 !important;box-shadow:0 4px 12px rgba(0,0,0,.18) !important;cursor:pointer !important}
-    .mobile-close-btn{display:block !important;position:absolute !important;right:10px !important;top:10px !important;width:36px !important;height:36px !important;border:0 !important;border-radius:9px !important;background:rgba(255,255,255,.12) !important;color:#fff !important;font-size:25px !important;line-height:1 !important;cursor:pointer !important}
-    .main{margin-left:0 !important;width:100% !important;min-width:0 !important;padding:0 12px 28px !important}
-    .header{padding:14px 4px 14px 58px !important;min-height:68px !important;gap:8px !important;align-items:center !important}
-    .header h1{font-size:24px !important;margin:0 !important}
-    .header-right{gap:6px !important;min-width:0 !important}
-    .user-chip{display:none !important}
-    .header-right>.btn{white-space:nowrap !important}
-    .dashboard-filter{padding:12px !important}
-    .dashboard-period-unified{display:flex !important;flex-wrap:wrap !important;align-items:center !important;gap:8px !important}
-    .dashboard-period-unified>b{width:100% !important}
-    .dashboard-period-unified small{width:100% !important}
-    .period-buttons{display:flex !important;width:100% !important;gap:7px !important}
-    .period-btn{flex:1 !important;min-height:42px !important}
-    .cards{grid-template-columns:repeat(2,minmax(0,1fr)) !important;gap:10px !important}
-    .card{min-width:0 !important;padding:14px !important}
-    .card strong{font-size:20px !important;word-break:break-word !important}
-    .panel{width:100% !important;min-width:0 !important}
-    .toolbar{display:grid !important;grid-template-columns:1fr !important;gap:8px !important}
-    .toolbar>*{width:100% !important;min-width:0 !important}
-    .table-wrap{overflow-x:auto !important;-webkit-overflow-scrolling:touch !important}
-    .table-wrap table{min-width:680px !important}
-    .stock-mini-grid{grid-template-columns:repeat(2,minmax(0,1fr)) !important}
-    .stock-mini-card{min-width:0 !important}
-    .notice{top:10px !important;left:58px !important;right:10px !important;max-width:none !important}
-  }
-  @media (max-width: 430px){
-    .main{padding-left:8px !important;padding-right:8px !important}
-    .header h1{font-size:21px !important}
-    .cards{grid-template-columns:1fr !important}
-    .stock-mini-grid{grid-template-columns:1fr !important}
-    .header-right>.btn{font-size:12px !important;padding:9px 10px !important}
-  }
-`;
-
 export default function Home() {
   const [screen, setScreen] = useState("dashboard");
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [sessionUser, setSessionUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -130,7 +87,10 @@ export default function Home() {
   const [purchasePaymentReceiver, setPurchasePaymentReceiver] = useState("");
   const [purchasePaymentNote, setPurchasePaymentNote] = useState("");
   const [purchasePaymentMode, setPurchasePaymentMode] = useState("CASH");
-  const [dashboardPeriod, setDashboardPeriod] = useState("month");
+  const [salesDashboardPeriod, setSalesDashboardPeriod] = useState("day");
+  const [collectionsDashboardPeriod, setCollectionsDashboardPeriod] = useState("day");
+  const [dueDashboardPeriod, setDueDashboardPeriod] = useState("month");
+  const [dashboardAsOnDate, setDashboardAsOnDate] = useState(today());
   const [salesAsOnDate, setSalesAsOnDate] = useState(today());
   const [collectionsAsOnDate, setCollectionsAsOnDate] = useState(today());
   const [stockAsOnDate, setStockAsOnDate] = useState(today());
@@ -238,6 +198,8 @@ export default function Home() {
   useEffect(() => {
     if (!sessionUser || !profile) return;
     loadAll();
+    const timer = setInterval(loadAll, 30000);
+    return () => clearInterval(timer);
   }, [sessionUser?.id, profile?.role]);
 
   async function loadUserProfile() {
@@ -288,15 +250,16 @@ export default function Home() {
         db.from("stock_transactions").select("*, item_master(item_name, master_name)").order("transaction_date", { ascending: true }),
         db.from("expense_types").select("*").eq("status", true).order("type_name"),
         db.from("expenses").select("*, expense_types(type_name), receivers(receiver_name)").order("expense_date", { ascending: false }),
-        db.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(500)
+        db.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(500),
+        profile?.role === "admin" ? db.from("user_profiles").select("*, receivers(receiver_name)").order("full_name") : Promise.resolve({data:[],error:null})
       ]);
-      const [c,i,r,s,sa,co,pu,st,et,ex,au] = queries;
+      const [c,i,r,s,sa,co,pu,st,et,ex,au,up] = queries;
       const firstError = [c,i,r,s,sa,co,pu,st,et,ex,au].find(x => x.error);
       if (firstError) setNotice(firstError.error.message);
       setCustomers(c.data || []); setItems(i.data || []); setReceivers(r.data || []);
       setSuppliers(s.data || []); setSales(sa.data || []); setCollections(co.data || []);
       setPurchases(pu.data || []); setStockTxns(st.data || []);
-      setExpenseTypes(et.data || []); setExpenses(ex.data || []); setAuditLogs(au.data || []);
+      setExpenseTypes(et.data || []); setExpenses(ex.data || []); setAuditLogs(au.data || []); setUserProfiles(up?.data || []);
     } catch (err) {
       setNotice(err?.message || "Unable to load application data.");
     } finally {
@@ -307,7 +270,6 @@ export default function Home() {
   function flash(msg) { setNotice(msg); setTimeout(() => setNotice(""), 3500); }
   function go(id) {
     setScreen(id);
-    setMobileNavOpen(false);
     if(typeof window!=="undefined"){
       window.history.pushState({screen:id},"",`#${id}`);
       window.scrollTo({top:0, behavior:"smooth"});
@@ -346,10 +308,9 @@ export default function Home() {
     if(period==="week"){ const start=new Date(end); start.setDate(end.getDate()-end.getDay()); start.setHours(0,0,0,0); return d>=start; }
     return d.getFullYear()===end.getFullYear() && d.getMonth()===end.getMonth();
   };
-  const dashboardPeriodDate=today();
-  const periodSales=sales.filter(s=>inPeriod(s.invoice_date,dashboardPeriod,dashboardPeriodDate));
-  const periodCollections=collections.filter(c=>inPeriod(c.collection_date,dashboardPeriod,dashboardPeriodDate));
-  const periodDueSales=sales.filter(s=>inPeriod(s.invoice_date,dashboardPeriod,dashboardPeriodDate));
+  const periodSales=sales.filter(s=>inPeriod(s.invoice_date,salesDashboardPeriod,dashboardAsOnDate));
+  const periodCollections=collections.filter(c=>inPeriod(c.collection_date,collectionsDashboardPeriod,dashboardAsOnDate));
+  const periodDueSales=sales.filter(s=>inPeriod(s.invoice_date,dueDashboardPeriod,dashboardAsOnDate));
   const periodSalesTotal=periodSales.reduce((a,x)=>a+Number(x.total_amount||0),0);
   const periodCollectionsTotal=periodCollections.reduce((a,x)=>a+Number(x.total_amount||0),0);
   const periodDueTotal=periodDueSales.reduce((a,x)=>a+Number(x.due_amount||0),0);
@@ -358,7 +319,7 @@ export default function Home() {
     const costRate=Number(line.cost_rate||0) || Number(item?.purchase_rate||0);
     return sum + Number(line.qty||0)*costRate;
   },0),0);
-  const periodExpenses=expenses.filter(e=>inPeriod(e.expense_date,dashboardPeriod,dashboardPeriodDate)).reduce((a,x)=>a+Number(x.amount||0),0);
+  const periodExpenses=expenses.filter(e=>inPeriod(e.expense_date,salesDashboardPeriod,dashboardAsOnDate)).reduce((a,x)=>a+Number(x.amount||0),0);
   const periodGrossProfit=periodSalesTotal-periodSalesCost;
   const periodNetProfit=periodGrossProfit-periodExpenses;
 
@@ -921,15 +882,7 @@ export default function Home() {
 function Sidebar() {
     const all=[["dashboard","🏠","Dashboard"],["sales","🧾","Sales"],["customers","👥","Customers"],["collections","💰","Collections"],["payment","💳","Payment"],["stock","📦","Stock"],["procurement","🛒","Procurement"],["expenses","💸","Expenses"],["reports","📊","Reports"],["master","⚙️","Master"]];
     const links=profile?.role==="receiver"?all.filter(x=>["dashboard","sales","customers","collections","payment","stock","reports"].includes(x[0])):all;
-    return <>
-      {mobileNavOpen&&<button type="button" className="mobile-nav-overlay" aria-label="Close menu" onClick={()=>setMobileNavOpen(false)}/>} 
-      <aside className={mobileNavOpen?"sidebar mobile-open":"sidebar"}>
-        <div className="brand">B REDDY SALES<span>{profile?.role==="receiver"?"Receiver Login":"Admin Login"}</span></div>
-        <button type="button" className="mobile-close-btn" onClick={()=>setMobileNavOpen(false)} aria-label="Close menu">×</button>
-        {links.map(([id,icon,label])=><button key={id} className={screen===id?"nav active":"nav"} onClick={()=>go(id)}>{icon}<span>{label}</span></button>)}
-        <button className="nav mobile-logout" onClick={logout}>🚪<span>Logout</span></button>
-      </aside>
-    </>
+    return <aside className="sidebar"><div className="brand">B REDDY SALES<span>{profile?.role==="receiver"?"Receiver Login":"Admin Login"}</span></div>{links.map(([id,icon,label])=><button key={id} className={screen===id?"nav active":"nav"} onClick={()=>go(id)}>{icon}<span>{label}</span></button>)}<button className="nav mobile-logout" onClick={logout}>🚪<span>Logout</span></button></aside>
   }
   function Dashboard() {
     const stockItems=items.map(i=>({ ...i, qty:Number(stockMap[i.id]||0) })).sort((a,b)=>a.item_name.localeCompare(b.item_name));
@@ -937,13 +890,16 @@ function Sidebar() {
     const periodButtons=(value,setter)=><div className="period-buttons">{[["day","Day"],["week","Week"],["month","Month"]].map(([id,label])=><button type="button" key={id} className={value===id?"period-btn active":"period-btn"} onClick={()=>setter(id)}>{label}</button>)}</div>;
     return <><Header title="Dashboard"><button className="btn primary" onClick={()=>go("create-sale")}>＋ Create Sale</button></Header>
       <div className="dashboard-filter panel">
-        <div className="dashboard-metric-filter dashboard-period-unified"><b>Sales &amp; Collections Summary</b>{periodButtons(dashboardPeriod,setDashboardPeriod)}<small>One selection controls Sales, Collections, Net Profit and Total Due.</small></div>
+        <div className="dashboard-metric-filter"><b>Sales</b>{periodButtons(salesDashboardPeriod,setSalesDashboardPeriod)}</div>
+        <div className="dashboard-metric-filter"><b>Collections</b>{periodButtons(collectionsDashboardPeriod,setCollectionsDashboardPeriod)}</div>
+        <div className="dashboard-metric-filter"><b>Total Due</b>{periodButtons(dueDashboardPeriod,setDueDashboardPeriod)}</div>
+        <label className="asof-label"><span>As on Date</span><input type="date" value={dashboardAsOnDate} onChange={e=>setDashboardAsOnDate(e.target.value)}/></label>
       </div>
       <div className="cards">
-        <Card t={`Sales — ${periodLabel(dashboardPeriod)}`} v={money(periodSalesTotal)} tone="sales"/>
-        <Card t={`Collections — ${periodLabel(dashboardPeriod)}`} v={money(periodCollectionsTotal)} tone="collections"/>
-        <Card t={`Net Profit — ${periodLabel(dashboardPeriod)}`} v={money(periodNetProfit)} tone="profit"/>
-        <Card t={`Total Due — ${periodLabel(dashboardPeriod)}`} v={money(periodDueTotal)} tone="due"/>
+        <Card t={`Sales — ${periodLabel(salesDashboardPeriod)}`} v={money(periodSalesTotal)} tone="sales"/>
+        <Card t={`Collections — ${periodLabel(collectionsDashboardPeriod)}`} v={money(periodCollectionsTotal)} tone="collections"/>
+        <Card t="Net Profit" v={money(periodNetProfit)} tone="profit"/>
+        <Card t={`Total Due — ${periodLabel(dueDashboardPeriod)}`} v={money(periodDueTotal)} tone="due"/>
       </div>
       <div className="panel">
         <div className="panel-title-row"><div><h3>Available Stock — Item Wise</h3><small>Click an item name to view stock history</small></div></div>
@@ -952,7 +908,7 @@ function Sidebar() {
       <div className="panel">
         <div className="toolbar"><input placeholder="Customer name / mobile" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)}/><select><option>All Items</option>{items.map(i=><option key={i.id}>{i.item_name}</option>)}</select><select><option>All Status</option><option>Paid</option><option>Partial</option><option>Due</option></select><button type="button" className="btn secondary" onClick={()=>setCustomerSearch(customerSearch)}>Search</button></div>
         <h3 className="section-heading">Customer Due Summary</h3>
-        <Table><thead><tr><th>Customer</th><th>Total Due</th><th>Last Invoice</th><th>Due &gt; 30 Days</th><th>Status</th></tr></thead><tbody>{filteredCustomers.map(c=>{const due=customerDue(c.id);const cs=sales.filter(s=>s.customer_id===c.id);const last=cs[0]?.invoice_date||"-";const old=cs.filter(s=>Math.floor((Date.now()-new Date(s.invoice_date))/86400000)>30).reduce((a,x)=>a+Number(x.due_amount||0),0);return <tr key={c.id}><td className="link" onClick={()=>{setSelectedCustomer(c);go("customer-detail")}}>{c.customer_name}</td><td>{money(due)}</td><td>{last}</td><td>{money(old)}</td><td><Status status={due>0?"DUE":"PAID"}/></td></tr>})}{!filteredCustomers.length&&<Empty col="5" text="No customers yet. Add a customer from Master."/>}</tbody></Table>
+        <Table><thead><tr><th>Customer</th><th>Total Due</th><th>Last Invoice</th><th>Due &gt; 30 Days</th><th>Status</th></tr></thead><tbody>{filteredCustomers.map(c=>{const due=customerDue(c.id);const cs=sales.filter(s=>s.customer_id===c.id);const last=cs[0]?.invoice_date||"-";const old=cs.filter(s=>Math.floor((Date.now()-new Date(s.invoice_date))/86400000)>30).reduce((a,x)=>a+Number(x.due_amount||0),0);return <tr key={c.id}><td className="link" onClick={()=>{setSelectedCustomer(c);go("customer-detail")}}>{c.customer_name}</td><td>{money(due)}</td><td>{last}</td><td>{money(old)}</td><td><Status status={due>0?"DUE":"PAID"}/></td></tr>})}{!filteredCustomers.length&&<Empty col="5" text="No customers yet. Add a customer from Master."/ >}</tbody></Table>
       </div>
     </>;
   }
@@ -1605,5 +1561,5 @@ function Sidebar() {
     loginBusy={loginBusy}
   />;
   if (loading) return <div className="loading">Loading B Reddy Sales…</div>;
-  return <><style>{responsiveStyles}</style><div className="app"><Sidebar/><button type="button" className="mobile-menu-button" onClick={()=>setMobileNavOpen(true)} aria-label="Open menu">☰</button><main className="main">{notice&&<div className="notice" style={{position:"fixed",top:"18px",right:"18px",left:"auto",zIndex:3000,maxWidth:"min(620px,calc(100vw - 36px))",whiteSpace:"normal"}}>{notice}</div>}{screen==="dashboard"&&Dashboard()}{screen==="create-sale"&&CreateSale()}{screen==="sales"&&Sales()}{screen==="customers"&&Customers()}{screen==="customer-detail"&&CustomerDetail()}{screen==="invoice-detail"&&InvoiceDetail()}{screen==="collections"&&Collections()}{screen==="payment"&&Payment()}{screen==="stock"&&Stock()}{screen==="procurement"&&Procurement()}{screen==="purchase"&&Purchase()}{screen==="expenses"&&Expenses()}{screen==="reports"&&Reports()}{screen==="master"&&Master()}</main></div>{auditTarget&&<AuditModal/>}</>;
+  return <><div className="app"><Sidebar/><main className="main">{notice&&<div className="notice" style={{position:"fixed",top:"18px",right:"18px",left:"auto",zIndex:3000,maxWidth:"min(620px,calc(100vw - 36px))",whiteSpace:"normal"}}>{notice}</div>}{screen==="dashboard"&&Dashboard()}{screen==="create-sale"&&CreateSale()}{screen==="sales"&&Sales()}{screen==="customers"&&Customers()}{screen==="customer-detail"&&CustomerDetail()}{screen==="invoice-detail"&&InvoiceDetail()}{screen==="collections"&&Collections()}{screen==="payment"&&Payment()}{screen==="stock"&&Stock()}{screen==="procurement"&&Procurement()}{screen==="purchase"&&Purchase()}{screen==="expenses"&&Expenses()}{screen==="reports"&&Reports()}{screen==="master"&&Master()}</main></div>{auditTarget&&<AuditModal/>}</>;
 }
