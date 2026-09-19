@@ -13,4 +13,7 @@ begin
   begin alter publication supabase_realtime add table purchases; exception when duplicate_object then null; end;
   begin alter publication supabase_realtime add table purchase_items; exception when duplicate_object then null; end;
   begin alter publication supabase_realtime add table stock_transactions; exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table expense_types; exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table expenses; exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table audit_logs; exception when duplicate_object then null; end;
 end $$;
