@@ -51,6 +51,7 @@ function LoginScreen({
 
 export default function Home() {
   const [screen, setScreen] = useState("dashboard");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sessionUser, setSessionUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -68,6 +69,7 @@ export default function Home() {
   const [expenseTypes, setExpenseTypes] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
+  const [userProfiles, setUserProfiles] = useState([]);
   const [expenseForm, setExpenseForm] = useState(emptyExpense);
   const [editingExpense, setEditingExpense] = useState(null);
   const [expenseDateFrom, setExpenseDateFrom] = useState("");
@@ -191,8 +193,6 @@ export default function Home() {
   useEffect(() => {
     if (!sessionUser || !profile) return;
     loadAll();
-    const timer = setInterval(loadAll, 30000);
-    return () => clearInterval(timer);
   }, [sessionUser?.id, profile?.role]);
 
   async function loadUserProfile() {
@@ -231,32 +231,52 @@ export default function Home() {
 
   async function loadAll() {
     setLoading(true);
-    const queries = await Promise.all([
-      db.from("customers").select("*").eq("status", true).order("customer_name"),
-      db.from("item_master").select("*").eq("status", true).order("item_name"),
-      db.from("receivers").select("*").eq("status", true).order("receiver_name"),
-      db.from("suppliers").select("*").eq("status", true).order("supplier_name"),
-      db.from("sales").select("*, customers(customer_name, mobile_no), sale_items(*, item_master(item_name, master_name))").order("invoice_date", { ascending: false }),
-      db.from("collections").select("*, customers(customer_name), receivers(receiver_name), collection_allocations(*, sales(invoice_no))").order("collection_date", { ascending: false }),
-      db.from("purchases").select("*, suppliers(supplier_name), receivers(receiver_name), purchase_items(*, item_master(item_name))").order("purchase_date", { ascending: false }),
-      db.from("stock_transactions").select("*, item_master(item_name, master_name)").order("transaction_date", { ascending: true }),
-      db.from("expense_types").select("*").eq("status", true).order("type_name"),
-      db.from("expenses").select("*, expense_types(type_name), receivers(receiver_name)").order("expense_date", { ascending: false }),
-      db.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(500),
-    ]);
-    const [c,i,r,s,sa,co,pu,st,et,ex,au] = queries;
-    const firstError = [c,i,r,s,sa,co,pu,st,et,ex,au].find(x => x.error);
-    if (firstError) setNotice(firstError.error.message);
-    setCustomers(c.data || []); setItems(i.data || []); setReceivers(r.data || []);
-    setSuppliers(s.data || []); setSales(sa.data || []); setCollections(co.data || []);
-    setPurchases(pu.data || []); setStockTxns(st.data || []);
-    setExpenseTypes(et.data || []); setExpenses(ex.data || []); setAuditLogs(au.data || []);
-    setLoading(false);
+    try {
+      const queries = await Promise.all([
+        db.from("customers").select("*").eq("status", true).order("customer_name"),
+        db.from("item_master").select("*").eq("status", true).order("item_name"),
+        db.from("receivers").select("*").eq("status", true).order("receiver_name"),
+        db.from("suppliers").select("*").eq("status", true).order("supplier_name"),
+        db.from("sales").select("*, customers(customer_name, mobile_no), sale_items(*, item_master(item_name, master_name))").order("invoice_date", { ascending: false }),
+        db.from("collections").select("*, customers(customer_name), collection_allocations(*, sales(invoice_no))").order("collection_date", { ascending: false }),
+        db.from("purchases").select("*, suppliers(supplier_name), purchase_items(*, item_master(item_name, master_name))").order("purchase_date", { ascending: false }),
+        db.from("stock_transactions").select("*, item_master(item_name, master_name)").order("transaction_date", { ascending: true }),
+        db.from("expense_types").select("*").eq("status", true).order("type_name"),
+        db.from("expenses").select("*, expense_types(type_name), receivers(receiver_name)").order("expense_date", { ascending: false }),
+        db.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(500),
+        profile?.role === "admin" ? db.from("user_profiles").select("*, receivers(receiver_name)").order("full_name") : Promise.resolve({data:[],error:null})
+      ]);
+      const [c,i,r,s,sa,co,pu,st,et,ex,au,up] = queries;
+      const firstError = [c,i,r,s,sa,co,pu,st,et,ex,au,up].find(x => x?.error);
+      if (firstError) setNotice(firstError.error.message);
+
+      const receiverMap = Object.fromEntries((r.data || []).map(x => [Number(x.id), x]));
+      const collectionsWithReceivers = (co.data || []).map(x => ({...x, receivers: receiverMap[Number(x.receiver_id)] || null}));
+      const purchasesWithReceivers = (pu.data || []).map(x => ({...x, receivers: receiverMap[Number(x.receiver_id)] || null}));
+
+      setCustomers(c.data || []);
+      setItems(i.data || []);
+      setReceivers(r.data || []);
+      setSuppliers(s.data || []);
+      setSales(sa.data || []);
+      setCollections(collectionsWithReceivers);
+      setPurchases(purchasesWithReceivers);
+      setStockTxns(st.data || []);
+      setExpenseTypes(et.data || []);
+      setExpenses(ex.data || []);
+      setAuditLogs(au.data || []);
+      setUserProfiles(up?.data || []);
+    } catch (err) {
+      setNotice(err?.message || "Unable to load application data.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   function flash(msg) { setNotice(msg); setTimeout(() => setNotice(""), 3500); }
   function go(id) {
     setScreen(id);
+    setMobileMenuOpen(false);
     if(typeof window!=="undefined"){
       window.history.pushState({screen:id},"",`#${id}`);
       window.scrollTo({top:0, behavior:"smooth"});
@@ -871,7 +891,12 @@ export default function Home() {
 function Sidebar() {
     const all=[["dashboard","🏠","Dashboard"],["sales","🧾","Sales"],["customers","👥","Customers"],["collections","💰","Collections"],["payment","💳","Payment"],["stock","📦","Stock"],["procurement","🛒","Procurement"],["expenses","💸","Expenses"],["reports","📊","Reports"],["audit","🕘","Audit Trail"],["master","⚙️","Master"]];
     const links=profile?.role==="receiver"?all.filter(x=>["dashboard","sales","customers","collections","payment","stock","reports"].includes(x[0])):all;
-    return <aside className="sidebar"><div className="brand">B REDDY SALES<span>{profile?.role==="receiver"?"Receiver Login":"Admin Login"}</span></div>{links.map(([id,icon,label])=><button key={id} className={screen===id?"nav active":"nav"} onClick={()=>go(id)}>{icon}<span>{label}</span></button>)}<button className="nav mobile-logout" onClick={logout}>🚪<span>Logout</span></button></aside>
+    return <aside className={mobileMenuOpen?"sidebar open":"sidebar"}>
+      <div className="mobile-sidebar-head"><div className="brand">B REDDY SALES<span>{profile?.role==="receiver"?"Receiver Login":"Admin Login"}</span></div><button type="button" className="mobile-close" onClick={()=>setMobileMenuOpen(false)}>×</button></div>
+      <div className="desktop-brand brand">B REDDY SALES<span>{profile?.role==="receiver"?"Receiver Login":"Admin Login"}</span></div>
+      {links.map(([id,icon,label])=><button key={id} className={screen===id?"nav active":"nav"} onClick={()=>go(id)}><span className="nav-icon">{icon}</span><span>{label}</span></button>)}
+      <button className="nav mobile-logout" onClick={logout}>🚪<span>Logout</span></button>
+    </aside>
   }
   function Dashboard() {
     const stockItems=items.map(i=>({ ...i, qty:Number(stockMap[i.id]||0) })).sort((a,b)=>a.item_name.localeCompare(b.item_name));
@@ -886,23 +911,6 @@ function Sidebar() {
         <Card t={`Collections — ${dashboardPeriod==="day"?"Day":dashboardPeriod==="week"?"Week":"This Month"}`} v={money(periodCollectionsTotal)} tone="collections"/>
         <Card t="Net Profit" v={money(periodNetProfit)} tone="profit"/>
         <Card t="Amount to Collect" v={money(dashboardDue)} tone="due"/>
-        <Card t="Available Stock" v={`${dashboardStock.toLocaleString("en-IN")} units`} tone="stock"/>
-      </div>
-      <div className="panel profit-summary">
-        <div className="panel-title-row"><div><h3>Profit Summary & Formula</h3><small>Based on the selected dashboard period and as-on date</small></div></div>
-        <div className="profit-formula"><b>Net Profit = Sales Revenue − Cost of Goods Sold (COGS) − Expenses</b></div>
-        <div className="profit-breakdown">
-          <div><span>Sales Revenue</span><b>{money(periodSalesTotal)}</b></div>
-          <div><span>COGS</span><b>{money(periodSalesCost)}</b><small>Qty × the purchase rate selected on each invoice line</small></div>
-          <div><span>Gross Profit</span><b>{money(periodGrossProfit)}</b></div>
-          <div><span>Expenses</span><b>{money(periodExpenses)}</b></div>
-          <div className={periodNetProfit<0?"negative":"positive"}><span>Net Profit</span><b>{money(periodNetProfit)}</b></div>
-        </div>
-        <small className="profit-note">For new invoices, COGS uses the actual Purchased Rate / Cost selected from available purchase-rate stock. This cost is saved on the invoice line, so changing Item Master Purchase Rate later will not change the historical profit. Older invoices without a saved cost rate use the Item Master rate as a fallback.</small>
-      </div>
-      <div className="panel">
-        <div className="panel-title-row"><div><h3>Available Stock — Item Wise</h3><small>Current quantity by item</small></div><button className="btn secondary" onClick={()=>go("stock")}>View Stock</button></div>
-        <div className="stock-mini-grid">{stockItems.map(i=><div className={i.qty<=Number(i.minimum_stock||0)?"stock-mini-card low":"stock-mini-card"} key={i.id}><b>{i.item_name}</b><span>{i.master_name||"Item"}</span><strong>{i.qty.toLocaleString("en-IN")}</strong><small>Available</small></div>)}{!stockItems.length&&<div className="empty">No items yet.</div>}</div>
       </div>
       <div className="panel">
         <div className="toolbar"><input placeholder="Customer name / mobile" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)}/><select><option>All Items</option>{items.map(i=><option key={i.id}>{i.item_name}</option>)}</select><select><option>All Status</option><option>Paid</option><option>Partial</option><option>Due</option></select><button type="button" className="btn secondary" onClick={()=>setCustomerSearch(customerSearch)}>Search</button></div>
@@ -1375,6 +1383,7 @@ function Sidebar() {
       {id:"receivers", label:"Receivers", icon:"💰", count:receivers.length},
       {id:"suppliers", label:"Suppliers", icon:"🏢", count:suppliers.length},
       {id:"expense_types", label:"Expense Types", icon:"🧾", count:expenseTypes.length},
+      {id:"user_profiles", label:"User Profiles", icon:"👤", count:userProfiles.length}
     ];
 
     return <>
@@ -1476,6 +1485,11 @@ function Sidebar() {
         <Table><thead><tr><th>Expense Type</th><th>Description</th><th>Action</th></tr></thead><tbody>{expenseTypes.map(t=><tr key={t.id}><td>{t.type_name}</td><td>{t.description||"-"}</td><td><button className="text-btn" onClick={()=>{setEditingExpenseType(t.id);setExpenseTypeForm({type_name:t.type_name,description:t.description||""});setShowExpenseTypeForm(true)}}>Edit</button></td></tr>)}{!expenseTypes.length&&<Empty col="3" text="No expense types yet. Add one to use Expenses."/>}</tbody></Table>
       </div>}
 
+      {masterTab==="user_profiles" && <div className="panel">
+        <div className="panel-title-row"><div><h3>User Profiles</h3><small>Role and receiver mapping for Supabase login accounts</small></div></div>
+        <div className="user-profile-note">Create the login account first in Supabase Authentication. Then add/update its profile using the SQL shown in <b>supabase/auth_setup.sql</b>. This screen is read-only so passwords are never stored in the application database.</div>
+        <Table><thead><tr><th>User</th><th>Role</th><th>Receiver</th><th>Status</th></tr></thead><tbody>{userProfiles.map(u=><tr key={u.id}><td><b>{u.full_name}</b><small className="muted-block">{u.email||u.id}</small></td><td><span className={u.role==="admin"?"role-badge admin":"role-badge receiver"}>{u.role}</span></td><td>{u.receivers?.receiver_name||"-"}</td><td>{u.status?"Active":"Inactive"}</td></tr>)}{!userProfiles.length&&<Empty col="4" text="No user profiles configured yet."/>}</tbody></Table>
+      </div>}
         </main>
       </div>
 
@@ -1539,5 +1553,45 @@ function Sidebar() {
     loginBusy={loginBusy}
   />;
   if (loading) return <div className="loading">Loading B Reddy Sales…</div>;
-  return <div className="app"><Sidebar/><main className="main">{notice&&<div className="notice">{notice}</div>}{screen==="dashboard"&&Dashboard()}{screen==="create-sale"&&CreateSale()}{screen==="sales"&&Sales()}{screen==="customers"&&Customers()}{screen==="customer-detail"&&CustomerDetail()}{screen==="invoice-detail"&&InvoiceDetail()}{screen==="collections"&&Collections()}{screen==="payment"&&Payment()}{screen==="stock"&&Stock()}{screen==="procurement"&&Procurement()}{screen==="purchase"&&Purchase()}{screen==="expenses"&&Expenses()}{screen==="reports"&&Reports()}{screen==="audit"&&AuditTrail()}{screen==="master"&&Master()}</main></div>;
+  return <>
+    <style>{`
+      .mobile-menu-button{display:none;position:fixed;left:14px;top:14px;z-index:1200;border:0;border-radius:12px;background:#16233b;color:#fff;padding:11px 14px;font-size:20px;box-shadow:0 5px 18px rgba(0,0,0,.18)}
+      .mobile-menu-overlay{display:none}
+      .mobile-sidebar-head{display:none}
+      .nav-icon{width:24px;display:inline-flex;justify-content:center}
+      @media(max-width:760px){
+        .mobile-menu-button{display:flex;align-items:center;gap:8px}
+        .mobile-menu-overlay{display:block;position:fixed;inset:0;background:rgba(0,0,0,.38);z-index:1090}
+        .sidebar{position:fixed!important;left:-290px;top:0;bottom:0;width:270px!important;height:100vh!important;z-index:1100;transition:left .22s ease;box-shadow:8px 0 24px rgba(0,0,0,.18);overflow-y:auto}
+        .sidebar.open{left:0}
+        .desktop-brand{display:none!important}
+        .mobile-sidebar-head{display:flex;align-items:flex-start;justify-content:space-between;padding:18px 16px 10px}
+        .mobile-sidebar-head .brand{display:block;padding:0;margin:0}
+        .mobile-close{border:0;background:transparent;color:#fff;font-size:32px;line-height:1;padding:0 4px}
+        .main{margin-left:0!important;width:100%!important;padding-top:62px!important}
+        .header{padding-top:8px!important}
+        .header h1{padding-left:4px}
+        .header-right{gap:6px}
+        .header-right .user-chip{max-width:160px}
+        .header-right .user-chip>div{display:none}
+        .header-right .logout-btn{font-size:12px;padding:7px 8px}
+        .notice{position:fixed!important;left:12px!important;right:12px!important;top:62px!important;z-index:1300!important;max-width:none!important}
+        .dashboard-filter{grid-template-columns:1fr!important}
+        .period-buttons{display:grid!important;grid-template-columns:repeat(3,1fr)!important;width:100%!important}
+        .period-btn{min-height:46px!important}
+        .cards{grid-template-columns:1fr 1fr!important}
+        .card strong{font-size:22px!important}
+        .toolbar{grid-template-columns:1fr!important}
+        .toolbar .btn{width:100%}
+        .panel{overflow-x:auto}
+        .table-wrap{overflow-x:auto}
+        table{min-width:650px}
+        .reports-layout,.master-layout{grid-template-columns:1fr!important}
+        .reports-sidebar,.master-sidebar{position:static!important}
+      }
+    `}</style>
+    {mobileMenuOpen&&<div className="mobile-menu-overlay" onClick={()=>setMobileMenuOpen(false)} />}
+    <button type="button" className="mobile-menu-button" aria-label="Open menu" onClick={()=>setMobileMenuOpen(true)}>☰ <span>Menu</span></button>
+    <div className="app"><Sidebar/><main className="main">{notice&&<div className="notice">{notice}</div>}{screen==="dashboard"&&Dashboard()}{screen==="create-sale"&&CreateSale()}{screen==="sales"&&Sales()}{screen==="customers"&&Customers()}{screen==="customer-detail"&&CustomerDetail()}{screen==="invoice-detail"&&InvoiceDetail()}{screen==="collections"&&Collections()}{screen==="payment"&&Payment()}{screen==="stock"&&Stock()}{screen==="procurement"&&Procurement()}{screen==="purchase"&&Purchase()}{screen==="expenses"&&Expenses()}{screen==="reports"&&Reports()}{screen==="audit"&&AuditTrail()}{screen==="master"&&Master()}</main></div>
+  </>;
 }
