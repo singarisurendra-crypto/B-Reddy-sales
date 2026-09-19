@@ -96,7 +96,10 @@ export default function Home() {
   const [salesDashboardPeriod, setSalesDashboardPeriod] = useState("day");
   const [collectionsDashboardPeriod, setCollectionsDashboardPeriod] = useState("day");
   const [dueDashboardPeriod, setDueDashboardPeriod] = useState("month");
-  const [dashboardPeriod, setDashboardPeriod] = useState("month");
+  const [dashboardSalesPeriod, setDashboardSalesPeriod] = useState("day");
+  const [dashboardCollectionsPeriod, setDashboardCollectionsPeriod] = useState("day");
+  const [dashboardProfitPeriod, setDashboardProfitPeriod] = useState("day");
+  const [dashboardDuePeriod, setDashboardDuePeriod] = useState("day");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [userProfiles, setUserProfiles] = useState([]);
@@ -322,9 +325,10 @@ export default function Home() {
     return d.getFullYear()===end.getFullYear() && d.getMonth()===end.getMonth();
   };
   const dashboardPeriodEnd=today();
-  const periodSales=sales.filter(s=>inPeriod(s.invoice_date,dashboardPeriod,dashboardPeriodEnd));
-  const periodCollections=collections.filter(c=>inPeriod(c.collection_date,dashboardPeriod,dashboardPeriodEnd));
-  const periodDueSales=sales.filter(s=>inPeriod(s.invoice_date,dashboardPeriod,dashboardPeriodEnd));
+  const periodSales=sales.filter(s=>inPeriod(s.invoice_date,dashboardSalesPeriod,dashboardPeriodEnd));
+  const periodCollections=collections.filter(c=>inPeriod(c.collection_date,dashboardCollectionsPeriod,dashboardPeriodEnd));
+  const periodProfitSales=sales.filter(s=>inPeriod(s.invoice_date,dashboardProfitPeriod,dashboardPeriodEnd));
+  const periodDueSales=sales.filter(s=>inPeriod(s.invoice_date,dashboardDuePeriod,dashboardPeriodEnd));
   const periodSalesTotal=periodSales.reduce((a,x)=>a+Number(x.total_amount||0),0);
   const periodCollectionsTotal=periodCollections.reduce((a,x)=>a+Number(x.total_amount||0),0);
   const periodDueTotal=periodDueSales.reduce((a,x)=>a+Number(x.due_amount||0),0);
@@ -334,7 +338,7 @@ export default function Home() {
     return sum + Number(line.qty||0)*costRate;
   },0),0);
   const periodExpenses=expenses.filter(e=>inPeriod(e.expense_date,dashboardPeriod,dashboardPeriodEnd)).reduce((a,x)=>a+Number(x.amount||0),0);
-  const periodGrossProfit=periodSalesTotal-periodSalesCost;
+  const periodGrossProfit=periodProfitSalesTotal-periodSalesCost;
   const periodNetProfit=periodGrossProfit-periodExpenses;
 
   async function saveCustomer(e) {
@@ -920,10 +924,10 @@ function Sidebar() {
     const periodButtons=(value,setter)=><div className="period-buttons">{[["day","Day"],["week","Week"],["month","Month"]].map(([id,label])=><button type="button" key={id} className={value===id?"period-btn active":"period-btn"} onClick={()=>setter(id)}>{label}</button>)}</div>;
     return <><Header title="Dashboard"><button className="btn primary" onClick={()=>go("create-sale")}>＋ Create Sale</button></Header>
       <div className="dashboard-metric-cards">
-        <MetricCard title="Sales" value={money(periodSalesTotal)} tone="sales" period={dashboardPeriod} setPeriod={setDashboardPeriod}/>
-        <MetricCard title="Collections" value={money(periodCollectionsTotal)} tone="collections" period={dashboardPeriod} setPeriod={setDashboardPeriod}/>
-        <MetricCard title="Net Profit" value={money(periodNetProfit)} tone="profit" period={dashboardPeriod} setPeriod={setDashboardPeriod}/>
-        <MetricCard title="Total Due" value={money(periodDueTotal)} tone="due" period={dashboardPeriod} setPeriod={setDashboardPeriod}/>
+        <MetricCard title="Sales" value={money(periodSalesTotal)} tone="sales" period={dashboardSalesPeriod} setPeriod={setDashboardSalesPeriod}/>
+        <MetricCard title="Collections" value={money(periodCollectionsTotal)} tone="collections" period={dashboardCollectionsPeriod} setPeriod={setDashboardCollectionsPeriod}/>
+        <MetricCard title="Net Profit" value={money(periodNetProfit)} tone="profit" period={dashboardProfitPeriod} setPeriod={setDashboardProfitPeriod}/>
+        <MetricCard title="Total Due" value={money(periodDueTotal)} tone="due" period={dashboardDuePeriod} setPeriod={setDashboardDuePeriod}/>
       </div>
       <div className="panel">
         <div className="panel-title-row"><div><h3>Available Stock — Item Wise</h3><small>Click an item name to view stock history</small></div></div>
@@ -1335,6 +1339,7 @@ function Sidebar() {
       return true;
     });
     return <><Header title="Procurement"><div className="header-actions"><label className="header-date">As on Date<input type="date" value={procurementAsOnDate} onChange={e=>setProcurementAsOnDate(e.target.value)}/></label><button className="btn primary" onClick={()=>{setEditingPurchase(null);setPurchaseDate(today());setPurchaseSupplier("");setPurchaseItems([{item_id:"",rate:0,qty:1}]);setPurchasePayment("DUE");setPurchasePaid(0);setPurchaseReceiver("");setPurchasePaymentMode("CASH");setPurchaseTransport(0);setPurchaseLoading(0);setPurchaseUnloading(0);setPurchaseChargesPaidBy("Business");setPurchaseChargesReceiver("");go("purchase")}}>＋ Purchase</button></div></Header>
+      <div className="panel procurement-payment-strip"><div className="panel-title-row"><div><span className="eyebrow">SUPPLIER PAYMENTS</span><h3>Purchase Bills Due</h3><small>Pay supplier bills directly from Procurement.</small></div><strong>{money(purchases.reduce((a,p)=>a+Number(p.due_amount||0),0))}</strong></div><div className="due-bill-list">{purchases.filter(p=>Number(p.due_amount||0)>0 && p.purchase_date<=procurementAsOnDate).slice(0,8).map(p=><div className="due-bill-row" key={p.id}><div><b>{p.purchase_no}</b><span>{p.suppliers?.supplier_name||"-"} · {displayDate(p.purchase_date)}</span></div><div><small>Due</small><strong>{money(p.due_amount)}</strong></div><button type="button" className="small-btn primary" onClick={()=>{setPurchasePaymentId(p.id);setPurchasePaymentAmount("");setPurchasePaymentDate(today());setPurchasePaymentReceiver(p.receiver_id?String(p.receiver_id):"");setPurchasePaymentMode(p.payment_mode||"CASH");setPurchasePaymentNote(`Payment for ${p.purchase_no}`)}}>Pay Bill</button></div>)}{!purchases.some(p=>Number(p.due_amount||0)>0&&p.purchase_date<=procurementAsOnDate)&&<div className="empty">No outstanding supplier bills.</div>}</div></div>
       <div className="panel procurement-filters">
         <label>Purchase No.<input placeholder="Search purchase" value={procurementSearch} onChange={e=>setProcurementSearch(e.target.value)}/></label>
         <label>Supplier<select value={procurementSupplierFilter} onChange={e=>setProcurementSupplierFilter(e.target.value)}><option value="">All Suppliers</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.supplier_name}</option>)}</select></label>
