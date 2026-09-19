@@ -255,7 +255,7 @@ export default function Home() {
     setCustomers(c.data || []); setItems(i.data || []); setReceivers(r.data || []);
     setSuppliers(s.data || []); setSales(sa.data || []); setCollections(co.data || []);
     setPurchases(pu.data || []); setStockTxns(st.data || []);
-    setExpenseTypes(et.data || []); setExpenses(ex.data || []); setAuditLogs(au.data || []); setUserProfiles(up?.data || []);
+    setExpensesTypes(et.data || []); setExpenses(ex.data || []); setAuditLogs(au.data || []);
     setLoading(false);
   }
 
