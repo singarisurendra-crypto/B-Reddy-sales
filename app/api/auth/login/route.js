@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '../../../../lib/server/supabaseAdmin';
-import { createSession } from '../../../../lib/server/session';
+import { supabaseAdmin } from '../../server/supabaseAdmin';
+import { createSession } from '../../server/session';
 
 export async function POST(request) {
   try {
