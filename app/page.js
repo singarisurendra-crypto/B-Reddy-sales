@@ -21,6 +21,34 @@ const emptyReceiver = { receiver_name: "", receiver_type: "Cash", opening_balanc
 const emptySupplier = { supplier_name: "", mobile_no: "", address: "", opening_due: 0 };
 const emptyExpense = { expense_date: today(), expense_type_id: "", amount: 0, paid_by: "Business", receiver_id: "", payment_mode: "CASH", reference_type: "", reference_id: "", remarks: "" };
 
+function LoginScreen({
+  loginRole,
+  setLoginRole,
+  notice,
+  loginForm,
+  setLoginForm,
+  handleLogin,
+  loginBusy,
+}) {
+  return <div className="auth-screen">
+    <div className="auth-card">
+      <div className="brand auth-brand">B REDDY SALES<span>Secure Login</span></div>
+      <div className="login-tabs">
+        <button type="button" className={loginRole==="admin"?"login-tab active": "login-tab"} onClick={()=>setLoginRole("admin")}>🔐 Admin Login</button>
+        <button type="button" className={loginRole==="receiver"?"login-tab active": "login-tab"} onClick={()=>setLoginRole("receiver")}>💰 Receiver Login</button>
+      </div>
+      {notice&&<div className="notice">{notice}</div>}
+      <form className="login-form" onSubmit={handleLogin}>
+        <label>Email Address<input type="email" autoComplete="username" value={loginForm.email} onChange={e=>setLoginForm(v=>({...v,email:e.target.value}))} placeholder="Enter login email"/></label>
+        <label>Password<input type="password" autoComplete="current-password" value={loginForm.password} onChange={e=>setLoginForm(v=>({...v,password:e.target.value}))} placeholder="Enter password"/></label>
+        <button className="btn primary login-submit" disabled={loginBusy}>{loginBusy?"Signing in…":`Sign in as ${loginRole==="admin"?"Admin":"Receiver"}`}</button>
+      </form>
+      <small className="login-help">Login is managed securely by B Reddy Sales. Passwords are stored as secure hashes and sessions are protected by the server.</small>
+    </div>
+  </div>
+}
+
+
 export default function Home() {
   const [screen, setScreen] = useState("dashboard");
   const [sessionUser, setSessionUser] = useState(null);
@@ -841,25 +869,6 @@ export default function Home() {
     </div></div>
   }
 
-  function LoginScreen(){
-  return <div className="auth-screen">
-    <div className="auth-card">
-      <div className="brand auth-brand">B REDDY SALES<span>Secure Login</span></div>
-      <div className="login-tabs">
-        <button type="button" className={loginRole==="admin"?"login-tab active": "login-tab"} onClick={()=>setLoginRole("admin")}>🔐 Admin Login</button>
-        <button type="button" className={loginRole==="receiver"?"login-tab active": "login-tab"} onClick={()=>setLoginRole("receiver")}>💰 Receiver Login</button>
-      </div>
-      {notice&&<div className="notice">{notice}</div>}
-      <form className="login-form" onSubmit={handleLogin}>
-        <label>Email Address<input type="email" autoComplete="username" value={loginForm.email} onChange={e=>setLoginForm(v=>({...v,email:e.target.value}))} placeholder="Enter login email"/></label>
-        <label>Password<input type="password" autoComplete="current-password" value={loginForm.password} onChange={e=>setLoginForm(v=>({...v,password:e.target.value}))} placeholder="Enter password"/></label>
-        <button className="btn primary login-submit" disabled={loginBusy}>{loginBusy?"Signing in…":`Sign in as ${loginRole==="admin"?"Admin":"Receiver"}`}</button>
-      </form>
-      <small className="login-help">Login is managed securely by B Reddy Sales. Passwords are stored as secure hashes and sessions are protected by the server.</small>
-    </div>
-  </div>
-}
-
 function Sidebar() {
     const all=[["dashboard","🏠","Dashboard"],["sales","🧾","Sales"],["customers","👥","Customers"],["collections","💰","Collections"],["payment","💳","Payment"],["stock","📦","Stock"],["procurement","🛒","Procurement"],["expenses","💸","Expenses"],["reports","📊","Reports"],["audit","🕘","Audit Trail"],["master","⚙️","Master"]];
     const links=profile?.role==="receiver"?all.filter(x=>["dashboard","sales","customers","collections","payment","stock","reports"].includes(x[0])):all;
@@ -1527,7 +1536,15 @@ function Sidebar() {
   }
 
   if(authLoading) return <div className="auth-screen"><div className="auth-card"><div className="brand auth-brand">B REDDY SALES<span>Retail Management</span></div><div className="loading">Checking login…</div></div></div>;
-  if(!sessionUser || !profile) return <LoginScreen/>;
+  if(!sessionUser || !profile) return <LoginScreen
+    loginRole={loginRole}
+    setLoginRole={setLoginRole}
+    notice={notice}
+    loginForm={loginForm}
+    setLoginForm={setLoginForm}
+    handleLogin={handleLogin}
+    loginBusy={loginBusy}
+  />;
   if (loading) return <div className="loading">Loading B Reddy Sales…</div>;
   return <div className="app"><Sidebar/><main className="main">{notice&&<div className="notice">{notice}</div>}{screen==="dashboard"&&Dashboard()}{screen==="create-sale"&&CreateSale()}{screen==="sales"&&Sales()}{screen==="customers"&&Customers()}{screen==="customer-detail"&&CustomerDetail()}{screen==="invoice-detail"&&InvoiceDetail()}{screen==="collections"&&Collections()}{screen==="payment"&&Payment()}{screen==="stock"&&Stock()}{screen==="procurement"&&Procurement()}{screen==="purchase"&&Purchase()}{screen==="expenses"&&Expenses()}{screen==="reports"&&Reports()}{screen==="audit"&&AuditTrail()}{screen==="master"&&Master()}</main></div>;
 }
