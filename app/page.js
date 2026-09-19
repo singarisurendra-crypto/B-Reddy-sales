@@ -51,7 +51,6 @@ function LoginScreen({
 
 export default function Home() {
   const [screen, setScreen] = useState("dashboard");
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sessionUser, setSessionUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -69,12 +68,13 @@ export default function Home() {
   const [expenseTypes, setExpenseTypes] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
-  const [userProfiles, setUserProfiles] = useState([]);
   const [expenseForm, setExpenseForm] = useState(emptyExpense);
   const [editingExpense, setEditingExpense] = useState(null);
   const [expenseDateFrom, setExpenseDateFrom] = useState("");
   const [expenseDateTo, setExpenseDateTo] = useState("");
   const [expenseTypeFilter, setExpenseTypeFilter] = useState("");
+  const [expensePaidByFilter, setExpensePaidByFilter] = useState("");
+  const [expenseReceiverFilter, setExpenseReceiverFilter] = useState("");
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [purchaseTransport, setPurchaseTransport] = useState(0);
   const [purchaseLoading, setPurchaseLoading] = useState(0);
@@ -87,10 +87,10 @@ export default function Home() {
   const [purchasePaymentReceiver, setPurchasePaymentReceiver] = useState("");
   const [purchasePaymentNote, setPurchasePaymentNote] = useState("");
   const [purchasePaymentMode, setPurchasePaymentMode] = useState("CASH");
-  const [dashboardPeriod, setDashboardPeriod] = useState("month");
+  const [salesDashboardPeriod, setSalesDashboardPeriod] = useState("day");
+  const [collectionsDashboardPeriod, setCollectionsDashboardPeriod] = useState("day");
+  const [dueDashboardPeriod, setDueDashboardPeriod] = useState("month");
   const [dashboardAsOnDate, setDashboardAsOnDate] = useState(today());
-  const [reportAsOnDate, setReportAsOnDate] = useState(today());
-  const [reportPeriod, setReportPeriod] = useState("month");
   const [salesAsOnDate, setSalesAsOnDate] = useState(today());
   const [collectionsAsOnDate, setCollectionsAsOnDate] = useState(today());
   const [stockAsOnDate, setStockAsOnDate] = useState(today());
@@ -139,6 +139,7 @@ export default function Home() {
   const [editingCollection, setEditingCollection] = useState(null);
   const [collectionDateFrom, setCollectionDateFrom] = useState("");
   const [collectionDateTo, setCollectionDateTo] = useState("");
+  const [collectionSearch, setCollectionSearch] = useState("");
   const [collectionReceiverFilter, setCollectionReceiverFilter] = useState("");
   const [collectionForm, setCollectionForm] = useState({collection_date:today(),receiver_id:"",payment_mode:"CASH",total_amount:0,remarks:""});
   const [stockHistoryItem, setStockHistoryItem] = useState(null);
@@ -151,6 +152,10 @@ export default function Home() {
   const [purchaseReceiver, setPurchaseReceiver] = useState("");
   const [masterTab, setMasterTab] = useState("customers");
   const [reportTab, setReportTab] = useState("invoices");
+  const [reportDateFrom, setReportDateFrom] = useState("");
+  const [reportDateTo, setReportDateTo] = useState(today());
+  const [reportSearch, setReportSearch] = useState("");
+  const [auditTarget, setAuditTarget] = useState(null);
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [invoiceCustomerFilter, setInvoiceCustomerFilter] = useState("");
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("");
@@ -193,6 +198,8 @@ export default function Home() {
   useEffect(() => {
     if (!sessionUser || !profile) return;
     loadAll();
+    const timer = setInterval(loadAll, 30000);
+    return () => clearInterval(timer);
   }, [sessionUser?.id, profile?.role]);
 
   async function loadUserProfile() {
@@ -238,8 +245,8 @@ export default function Home() {
         db.from("receivers").select("*").eq("status", true).order("receiver_name"),
         db.from("suppliers").select("*").eq("status", true).order("supplier_name"),
         db.from("sales").select("*, customers(customer_name, mobile_no), sale_items(*, item_master(item_name, master_name))").order("invoice_date", { ascending: false }),
-        db.from("collections").select("*, customers(customer_name), collection_allocations(*, sales(invoice_no))").order("collection_date", { ascending: false }),
-        db.from("purchases").select("*, suppliers(supplier_name), purchase_items(*, item_master(item_name, master_name))").order("purchase_date", { ascending: false }),
+        db.from("collections").select("*, customers(customer_name), receivers(receiver_name), collection_allocations(*, sales(invoice_no))").order("collection_date", { ascending: false }),
+        db.from("purchases").select("*, suppliers(supplier_name), purchase_items(*, item_master(item_name))").order("purchase_date", { ascending: false }),
         db.from("stock_transactions").select("*, item_master(item_name, master_name)").order("transaction_date", { ascending: true }),
         db.from("expense_types").select("*").eq("status", true).order("type_name"),
         db.from("expenses").select("*, expense_types(type_name), receivers(receiver_name)").order("expense_date", { ascending: false }),
@@ -247,25 +254,12 @@ export default function Home() {
         profile?.role === "admin" ? db.from("user_profiles").select("*, receivers(receiver_name)").order("full_name") : Promise.resolve({data:[],error:null})
       ]);
       const [c,i,r,s,sa,co,pu,st,et,ex,au,up] = queries;
-      const firstError = [c,i,r,s,sa,co,pu,st,et,ex,au,up].find(x => x?.error);
+      const firstError = [c,i,r,s,sa,co,pu,st,et,ex,au].find(x => x.error);
       if (firstError) setNotice(firstError.error.message);
-
-      const receiverMap = Object.fromEntries((r.data || []).map(x => [Number(x.id), x]));
-      const collectionsWithReceivers = (co.data || []).map(x => ({...x, receivers: receiverMap[Number(x.receiver_id)] || null}));
-      const purchasesWithReceivers = (pu.data || []).map(x => ({...x, receivers: receiverMap[Number(x.receiver_id)] || null}));
-
-      setCustomers(c.data || []);
-      setItems(i.data || []);
-      setReceivers(r.data || []);
-      setSuppliers(s.data || []);
-      setSales(sa.data || []);
-      setCollections(collectionsWithReceivers);
-      setPurchases(purchasesWithReceivers);
-      setStockTxns(st.data || []);
-      setExpenseTypes(et.data || []);
-      setExpenses(ex.data || []);
-      setAuditLogs(au.data || []);
-      setUserProfiles(up?.data || []);
+      setCustomers(c.data || []); setItems(i.data || []); setReceivers(r.data || []);
+      setSuppliers(s.data || []); setSales(sa.data || []); setCollections(co.data || []);
+      setPurchases(pu.data || []); setStockTxns(st.data || []);
+      setExpenseTypes(et.data || []); setExpenses(ex.data || []); setAuditLogs(au.data || []); setUserProfiles(up?.data || []);
     } catch (err) {
       setNotice(err?.message || "Unable to load application data.");
     } finally {
@@ -276,7 +270,6 @@ export default function Home() {
   function flash(msg) { setNotice(msg); setTimeout(() => setNotice(""), 3500); }
   function go(id) {
     setScreen(id);
-    setMobileMenuOpen(false);
     if(typeof window!=="undefined"){
       window.history.pushState({screen:id},"",`#${id}`);
       window.scrollTo({top:0, behavior:"smooth"});
@@ -307,10 +300,6 @@ export default function Home() {
   const paidForPurchase = purchasePayment === "PAID" ? purchaseTotal : purchasePayment === "PARTIAL" ? Math.min(Number(purchasePaid || 0), purchaseTotal) : 0;
   const dueForPurchase = purchaseTotal - paidForPurchase;
 
-  const dashboardSales = sales.reduce((a,x) => a + Number(x.total_amount || 0), 0);
-  const dashboardCollections = collections.reduce((a,x) => a + Number(x.total_amount || 0), 0);
-  const dashboardDue = sales.reduce((a,x) => a + Number(x.due_amount || 0), 0) + customers.reduce((a,x) => a + Number(x.opening_due || 0), 0);
-  const dashboardStock = Object.values(stockMap).reduce((a,x) => a + Number(x || 0), 0);
   const inPeriod=(date,period,asOn)=>{
     if(!date) return false;
     const d=new Date(date+"T00:00:00"), end=new Date((asOn||today())+"T23:59:59");
@@ -319,16 +308,18 @@ export default function Home() {
     if(period==="week"){ const start=new Date(end); start.setDate(end.getDate()-end.getDay()); start.setHours(0,0,0,0); return d>=start; }
     return d.getFullYear()===end.getFullYear() && d.getMonth()===end.getMonth();
   };
-  const periodSales=sales.filter(s=>inPeriod(s.invoice_date,dashboardPeriod,dashboardAsOnDate));
-  const periodCollections=collections.filter(c=>inPeriod(c.collection_date,dashboardPeriod,dashboardAsOnDate));
+  const periodSales=sales.filter(s=>inPeriod(s.invoice_date,salesDashboardPeriod,dashboardAsOnDate));
+  const periodCollections=collections.filter(c=>inPeriod(c.collection_date,collectionsDashboardPeriod,dashboardAsOnDate));
+  const periodDueSales=sales.filter(s=>inPeriod(s.invoice_date,dueDashboardPeriod,dashboardAsOnDate));
   const periodSalesTotal=periodSales.reduce((a,x)=>a+Number(x.total_amount||0),0);
   const periodCollectionsTotal=periodCollections.reduce((a,x)=>a+Number(x.total_amount||0),0);
+  const periodDueTotal=periodDueSales.reduce((a,x)=>a+Number(x.due_amount||0),0);
   const periodSalesCost=periodSales.reduce((total,sale)=>total+(sale.sale_items||[]).reduce((sum,line)=>{
     const item=items.find(i=>i.id===Number(line.item_id));
     const costRate=Number(line.cost_rate||0) || Number(item?.purchase_rate||0);
     return sum + Number(line.qty||0)*costRate;
   },0),0);
-  const periodExpenses=expenses.filter(e=>inPeriod(e.expense_date,dashboardPeriod,dashboardAsOnDate)).reduce((a,x)=>a+Number(x.amount||0),0);
+  const periodExpenses=expenses.filter(e=>inPeriod(e.expense_date,salesDashboardPeriod,dashboardAsOnDate)).reduce((a,x)=>a+Number(x.amount||0),0);
   const periodGrossProfit=periodSalesTotal-periodSalesCost;
   const periodNetProfit=periodGrossProfit-periodExpenses;
 
@@ -827,13 +818,13 @@ export default function Home() {
   }
 
   function Expenses(){
-    const filtered=expenses.filter(x=>(!expenseDateFrom||x.expense_date>=expenseDateFrom)&&(!expenseDateTo||x.expense_date<=expenseDateTo)&&(!expenseTypeFilter||x.expense_type_id===Number(expenseTypeFilter)));
+    const filtered=expenses.filter(x=>(!expenseDateFrom||x.expense_date>=expenseDateFrom)&&(!expenseDateTo||x.expense_date<=expenseDateTo)&&(!expenseTypeFilter||x.expense_type_id===Number(expenseTypeFilter))&&(!expensePaidByFilter||x.paid_by===expensePaidByFilter)&&(!expenseReceiverFilter||x.receiver_id===Number(expenseReceiverFilter)));
     function openEdit(x){
       setEditingExpense(x.id);setExpenseForm({expense_date:x.expense_date,expense_type_id:String(x.expense_type_id),amount:x.amount,paid_by:x.paid_by,receiver_id:x.receiver_id?String(x.receiver_id):"",payment_mode:x.payment_mode||"CASH",reference_type:x.reference_type||"",reference_id:x.reference_id?String(x.reference_id):"",remarks:x.remarks||""});setShowExpenseForm(true);
     }
     return <><Header title="Expenses"><button className="btn primary" onClick={()=>{setEditingExpense(null);setExpenseForm({...emptyExpense,expense_date:today()});setShowExpenseForm(true)}}>＋ Add Expense</button></Header>
       <div className="panel expense-filters"><label>From Date<input type="date" value={expenseDateFrom} onChange={e=>setExpenseDateFrom(e.target.value)}/></label><label>To Date<input type="date" value={expenseDateTo} onChange={e=>setExpenseDateTo(e.target.value)}/></label><label>Expense Type<select value={expenseTypeFilter} onChange={e=>setExpenseTypeFilter(e.target.value)}><option value="">All Types</option>{expenseTypes.map(t=><option key={t.id} value={t.id}>{t.type_name}</option>)}</select></label><button type="button" className="btn secondary" onClick={()=>{setExpenseDateFrom("");setExpenseDateTo("");setExpenseTypeFilter("")}}>Clear</button></div>
-      <div className="panel"><div className="panel-title-row"><div><h3>Expense Register</h3><small>Total: {money(filtered.reduce((a,x)=>a+Number(x.amount||0),0))}</small></div></div><Table><thead><tr><th>Date</th><th>Expense Type</th><th>Amount</th><th>Paid By</th><th>Receiver</th><th>Paid As</th><th>Reference</th><th>Remarks</th></tr></thead><tbody>{filtered.map(x=><tr key={x.id}><td>{x.expense_date}</td><td>{x.expense_types?.type_name}</td><td>{money(x.amount)}</td><td>{x.paid_by}</td><td>{x.receivers?.receiver_name||"-"}</td><td>{x.payment_mode==="PHONEPE"?"PhonePe":"Cash"}</td><td className={x.reference_type==="PURCHASE"?"link":""} onClick={()=>x.reference_type==="PURCHASE"&&x.reference_id&&(()=>{const pp=purchases.find(z=>z.id===Number(x.reference_id));if(pp){setEditingPurchase(pp.id);setPurchaseDate(pp.purchase_date);setPurchaseSupplier(String(pp.supplier_id));setPurchaseItems((pp.purchase_items||[]).map(q=>({item_id:String(q.item_id),rate:q.rate,qty:q.qty})));go("purchase")}})()}>{x.reference_type?`${x.reference_type} #${x.reference_id}`:"-"}</td><td>{x.remarks||"-"}</td></tr>)}{!filtered.length&&<Empty col="8" text="No expenses found."/>}</tbody></Table></div>
+      <div className="panel"><div className="panel-title-row"><div><h3>Expense Register</h3><small>Total: {money(filtered.reduce((a,x)=>a+Number(x.amount||0),0))}</small></div></div><Table><thead><tr><th>Date</th><th>Expense Type</th><th>Amount</th><th>Paid By</th><th>Receiver</th><th>Paid As</th><th>Reference</th><th>Remarks</th><th>Audit</th></tr></thead><tbody>{filtered.map(x=><tr key={x.id}><td>{x.expense_date}</td><td>{x.expense_types?.type_name}</td><td>{money(x.amount)}</td><td>{x.paid_by}</td><td>{x.receivers?.receiver_name||"-"}</td><td>{x.payment_mode==="PHONEPE"?"PhonePe":"Cash"}</td><td className={x.reference_type==="PURCHASE"?"link":""} onClick={()=>x.reference_type==="PURCHASE"&&x.reference_id&&(()=>{const pp=purchases.find(z=>z.id===Number(x.reference_id));if(pp){setEditingPurchase(pp.id);setPurchaseDate(pp.purchase_date);setPurchaseSupplier(String(pp.supplier_id));setPurchaseItems((pp.purchase_items||[]).map(q=>({item_id:String(q.item_id),rate:q.rate,qty:q.qty})));go("purchase")}})()}>{x.reference_type?`${x.reference_type} #${x.reference_id}`:"-"}</td><td>{x.remarks||"-"}</td><td><button type="button" className="small-btn secondary" onClick={()=>setAuditTarget({table:"expenses",id:x.id,label:`Expense #${x.id}`})}>Audit</button></td></tr>)}{!filtered.length&&<Empty col="9" text="No expenses found."/>}</tbody></Table></div>
       {showExpenseForm&&ExpenseForm()}
     </>
   }
@@ -889,28 +880,30 @@ export default function Home() {
   }
 
 function Sidebar() {
-    const all=[["dashboard","🏠","Dashboard"],["sales","🧾","Sales"],["customers","👥","Customers"],["collections","💰","Collections"],["payment","💳","Payment"],["stock","📦","Stock"],["procurement","🛒","Procurement"],["expenses","💸","Expenses"],["reports","📊","Reports"],["audit","🕘","Audit Trail"],["master","⚙️","Master"]];
+    const all=[["dashboard","🏠","Dashboard"],["sales","🧾","Sales"],["customers","👥","Customers"],["collections","💰","Collections"],["payment","💳","Payment"],["stock","📦","Stock"],["procurement","🛒","Procurement"],["expenses","💸","Expenses"],["reports","📊","Reports"],["master","⚙️","Master"]];
     const links=profile?.role==="receiver"?all.filter(x=>["dashboard","sales","customers","collections","payment","stock","reports"].includes(x[0])):all;
-    return <aside className={mobileMenuOpen?"sidebar open":"sidebar"}>
-      <div className="mobile-sidebar-head"><div className="brand">B REDDY SALES<span>{profile?.role==="receiver"?"Receiver Login":"Admin Login"}</span></div><button type="button" className="mobile-close" onClick={()=>setMobileMenuOpen(false)}>×</button></div>
-      <div className="desktop-brand brand">B REDDY SALES<span>{profile?.role==="receiver"?"Receiver Login":"Admin Login"}</span></div>
-      {links.map(([id,icon,label])=><button key={id} className={screen===id?"nav active":"nav"} onClick={()=>go(id)}><span className="nav-icon">{icon}</span><span>{label}</span></button>)}
-      <button className="nav mobile-logout" onClick={logout}>🚪<span>Logout</span></button>
-    </aside>
+    return <aside className="sidebar"><div className="brand">B REDDY SALES<span>{profile?.role==="receiver"?"Receiver Login":"Admin Login"}</span></div>{links.map(([id,icon,label])=><button key={id} className={screen===id?"nav active":"nav"} onClick={()=>go(id)}>{icon}<span>{label}</span></button>)}<button className="nav mobile-logout" onClick={logout}>🚪<span>Logout</span></button></aside>
   }
   function Dashboard() {
     const stockItems=items.map(i=>({ ...i, qty:Number(stockMap[i.id]||0) })).sort((a,b)=>a.item_name.localeCompare(b.item_name));
+    const periodLabel=(p)=>p==="day"?"Day":p==="week"?"Week":"Month";
+    const periodButtons=(value,setter)=><div className="period-buttons">{[["day","Day"],["week","Week"],["month","Month"]].map(([id,label])=><button type="button" key={id} className={value===id?"period-btn active":"period-btn"} onClick={()=>setter(id)}>{label}</button>)}</div>;
     return <><Header title="Dashboard"><button className="btn primary" onClick={()=>go("create-sale")}>＋ Create Sale</button></Header>
       <div className="dashboard-filter panel">
-        <div><b>Sales & Collections Period</b><small>Select Day, Week or Month</small></div>
-        <div className="period-buttons">{[["day","Day"],["week","Week"],["month","This Month"]].map(([id,label])=><button type="button" key={id} className={dashboardPeriod===id?"period-btn active":"period-btn"} onClick={()=>setDashboardPeriod(id)}>{label}</button>)}</div>
-        <label className="asof-label">As on Date<input type="date" value={dashboardAsOnDate} onChange={e=>setDashboardAsOnDate(e.target.value)}/></label>
+        <div className="dashboard-metric-filter"><b>Sales</b>{periodButtons(salesDashboardPeriod,setSalesDashboardPeriod)}</div>
+        <div className="dashboard-metric-filter"><b>Collections</b>{periodButtons(collectionsDashboardPeriod,setCollectionsDashboardPeriod)}</div>
+        <div className="dashboard-metric-filter"><b>Total Due</b>{periodButtons(dueDashboardPeriod,setDueDashboardPeriod)}</div>
+        <label className="asof-label"><span>As on Date</span><input type="date" value={dashboardAsOnDate} onChange={e=>setDashboardAsOnDate(e.target.value)}/></label>
       </div>
       <div className="cards">
-        <Card t={`Sales — ${dashboardPeriod==="day"?"Day":dashboardPeriod==="week"?"Week":"This Month"}`} v={money(periodSalesTotal)} tone="sales"/>
-        <Card t={`Collections — ${dashboardPeriod==="day"?"Day":dashboardPeriod==="week"?"Week":"This Month"}`} v={money(periodCollectionsTotal)} tone="collections"/>
+        <Card t={`Sales — ${periodLabel(salesDashboardPeriod)}`} v={money(periodSalesTotal)} tone="sales"/>
+        <Card t={`Collections — ${periodLabel(collectionsDashboardPeriod)}`} v={money(periodCollectionsTotal)} tone="collections"/>
         <Card t="Net Profit" v={money(periodNetProfit)} tone="profit"/>
-        <Card t="Amount to Collect" v={money(dashboardDue)} tone="due"/>
+        <Card t={`Total Due — ${periodLabel(dueDashboardPeriod)}`} v={money(periodDueTotal)} tone="due"/>
+      </div>
+      <div className="panel">
+        <div className="panel-title-row"><div><h3>Available Stock — Item Wise</h3><small>Click an item name to view stock history</small></div></div>
+        <div className="stock-mini-grid">{stockItems.map(i=><div className={i.qty<=Number(i.minimum_stock||0)?"stock-mini-card low":"stock-mini-card"} key={i.id}><b className="link" onClick={()=>{setStockHistoryItem(i);go("stock")}}>{i.item_name}</b><span>{i.master_name||"Item"}</span><strong>{i.qty.toLocaleString("en-IN")}</strong><small>Available</small></div>)}{!stockItems.length&&<div className="empty">No items yet.</div>}</div>
       </div>
       <div className="panel">
         <div className="toolbar"><input placeholder="Customer name / mobile" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)}/><select><option>All Items</option>{items.map(i=><option key={i.id}>{i.item_name}</option>)}</select><select><option>All Status</option><option>Paid</option><option>Partial</option><option>Due</option></select><button type="button" className="btn secondary" onClick={()=>setCustomerSearch(customerSearch)}>Search</button></div>
@@ -919,6 +912,7 @@ function Sidebar() {
       </div>
     </>;
   }
+
   function Card({t,v,tone=""}){return <div className={"card "+tone}><span>{t}</span><strong>{v}</strong></div>}
   function Header({title,children}){return <div className="header"><h1>{title}</h1><div className="header-right">{children}<div className="user-chip"><span>👤</span><div><b>{profile?.full_name||sessionUser?.email||"User"}</b><small>{profile?.role==="receiver"?"Receiver":"Admin"}{profile?.receivers?.receiver_name?` · ${profile.receivers.receiver_name}`:""}</small></div><button type="button" className="logout-btn" onClick={logout}>Logout</button></div></div></div>}
   function Table({children,className=""}){
@@ -1117,7 +1111,7 @@ function Sidebar() {
         <label>To Date<input type="date" value={invoiceDateTo} onChange={e=>setInvoiceDateTo(e.target.value)}/></label>
         <button type="button" className="btn secondary filter-clear" onClick={()=>{setInvoiceSearch("");setInvoiceCustomerFilter("");setInvoiceStatusFilter("");setInvoiceDateFrom("");setInvoiceDateTo("")}}>Clear</button>
       </div>
-      <div className="panel"><div className="panel-title-row"><div><h3>Sales Register</h3><small>{rows.length} invoices matching filters · up to {salesAsOnDate}</small></div></div><Table><thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Amount</th><th>Paid</th><th>Due</th><th>Status</th></tr></thead><tbody>{rows.map(s=><tr key={s.id}><td className="link" onClick={()=>{setSelectedInvoice(s);go("invoice-detail")}}>{s.invoice_no}</td><td>{s.invoice_date}</td><td>{s.customers?.customer_name}</td><td>{money(s.total_amount)}</td><td>{money(s.paid_amount)}</td><td>{money(s.due_amount)}</td><td><Status status={s.payment_status}/></td></tr>)}{!rows.length&&<Empty col="7" text="No invoices match the selected filters."/>}</tbody></Table></div></>
+      <div className="panel"><div className="panel-title-row"><div><h3>Sales Register</h3><small>{rows.length} invoices matching filters · up to {salesAsOnDate}</small></div></div><Table><thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Amount</th><th>Paid</th><th>Due</th><th>Status</th><th>Audit</th></tr></thead><tbody>{rows.map(s=><tr key={s.id}><td className="link" onClick={()=>{setSelectedInvoice(s);go("invoice-detail")}}>{s.invoice_no}</td><td>{s.invoice_date}</td><td>{s.customers?.customer_name}</td><td>{money(s.total_amount)}</td><td>{money(s.paid_amount)}</td><td>{money(s.due_amount)}</td><td><Status status={s.payment_status}/></td><td><button type="button" className="small-btn secondary" onClick={()=>setAuditTarget({table:"sales",id:s.id,label:s.invoice_no})}>Audit</button></td></tr>)}{!rows.length&&<Empty col="8" text="No invoices match the selected filters."/>}</tbody></Table></div></>
   }
 
   function Payment(){
@@ -1177,29 +1171,31 @@ function Sidebar() {
   }
 
   function Collections(){
-    const filteredCollections=collectionsDataFilter(collections,collectionDateFrom,collectionDateTo,collectionReceiverFilter).filter(c=>c.collection_date<=collectionsAsOnDate);
+    const filteredCollections=collectionsDataFilter(collections,collectionSearch,collectionDateFrom,collectionDateTo,collectionReceiverFilter).filter(c=>c.collection_date<=collectionsAsOnDate);
     function editCollection(c){
       setEditingCollection(c);
       setCollectionForm({collection_date:c.collection_date,receiver_id:String(c.receiver_id||""),payment_mode:c.payment_mode||"CASH",total_amount:Number(c.total_amount||0),remarks:c.remarks||""});
     }
     return <><Header title="Collections"><button className="btn primary" onClick={()=>{setPaymentCustomer("");setPaymentAmounts({});setPaymentOldDue("");setPaymentInvoiceId(null);go("payment")}}>＋ Collect Amount</button></Header>
       <div className="panel collection-filters">
+        <label>Collection No.<input placeholder="Search collection" value={collectionSearch} onChange={e=>setCollectionSearch(e.target.value)}/></label>
         <label>From Date<input type="date" value={collectionDateFrom} onChange={e=>setCollectionDateFrom(e.target.value)}/></label>
-        <label>To Date<input type="date" value={collectionDateTo} onChange={e=>setCollectionDateTo(e.target.value)}/></label><label>As on Date<input type="date" value={collectionsAsOnDate} onChange={e=>setCollectionsAsOnDate(e.target.value)}/></label>
+        <label>To Date<input type="date" value={collectionDateTo} onChange={e=>setCollectionDateTo(e.target.value)}/></label>
         <label>Receiver<select value={collectionReceiverFilter} onChange={e=>setCollectionReceiverFilter(e.target.value)}><option value="">All Receivers</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name}</option>)}</select></label>
-        <button type="button" className="btn secondary filter-clear" onClick={()=>{setCollectionDateFrom("");setCollectionDateTo("");setCollectionReceiverFilter("")}}>Clear</button>
+        <button type="button" className="btn secondary filter-clear" onClick={()=>{setCollectionSearch("");setCollectionDateFrom("");setCollectionDateTo("");setCollectionReceiverFilter("")}}>Clear</button>
       </div>
-      <div className="panel"><Table><thead><tr><th>Collection No.</th><th>Date</th><th>Customer</th><th>Receiver</th><th>Received As</th><th>Amount</th><th>Remarks</th></tr></thead>
+      <div className="panel"><div className="panel-title-row"><div><h3>Collection Register</h3><small>{filteredCollections.length} collections up to {collectionsAsOnDate}</small></div></div><Table><thead><tr><th>Collection No.</th><th>Date</th><th>Customer</th><th>Receiver</th><th>Received As</th><th>Amount</th><th>Remarks</th><th>Audit</th></tr></thead>
         <tbody>{filteredCollections.map(c=><tr key={c.id}>
-          <td className="link" onClick={()=>editCollection(c)}>{c.collection_no}</td><td>{c.collection_date}</td><td>{c.customers?.customer_name}</td><td>{c.receivers?.receiver_name}</td><td>{c.payment_mode==="PHONEPE"?"PhonePe":"Cash"}</td><td>{money(c.total_amount)}</td><td>{c.remarks||"-"}</td>
-        </tr>)}{!filteredCollections.length&&<Empty col="7" text="No collections found."/>}</tbody></Table></div>
+          <td className="link" onClick={()=>editCollection(c)}>{c.collection_no}</td><td>{c.collection_date}</td><td>{c.customers?.customer_name}</td><td>{c.receivers?.receiver_name}</td><td>{c.payment_mode==="PHONEPE"?"PhonePe":"Cash"}</td><td>{money(c.total_amount)}</td><td>{c.remarks||"-"}</td><td><button type="button" className="small-btn secondary" onClick={()=>setAuditTarget({table:"collections",id:c.id,label:c.collection_no||`Collection #${c.id}`})}>Audit</button></td>
+        </tr>)}{!filteredCollections.length&&<Empty col="8" text="No collections found."/>}</tbody></Table></div>
       {editingCollection&&<CollectionEditModal/>}
     </>
   }
 
-
-  function collectionsDataFilter(rows,from,to,receiverId){
+  function collectionsDataFilter(rows,search,from,to,receiverId){
+    const q=String(search||"").trim().toLowerCase();
     return rows.filter(c=>
+      (!q || String(c.collection_no||"").toLowerCase().includes(q)) &&
       (!from || c.collection_date>=from) &&
       (!to || c.collection_date<=to) &&
       (!receiverId || c.receiver_id===Number(receiverId))
@@ -1331,12 +1327,12 @@ function Sidebar() {
         <label>To Date<input type="date" value={procurementDateTo} onChange={e=>setProcurementDateTo(e.target.value)}/></label>
         <button type="button" className="btn secondary filter-clear" onClick={()=>{setProcurementSearch("");setProcurementSupplierFilter("");setProcurementStatusFilter("");setProcurementDateFrom("");setProcurementDateTo("")}}>Clear</button>
       </div>
-      <div className="panel"><div className="panel-title-row"><div><h3>Procurement Register</h3><small>{rows.length} purchases matching filters · up to {procurementAsOnDate}</small></div></div><Table><thead><tr><th>Purchase</th><th>Date</th><th>Supplier</th><th>Total</th><th>Paid</th><th>Due</th><th>Status</th><th>Payment</th></tr></thead><tbody>{rows.map(p=><tr key={p.id}>
+      <div className="panel"><div className="panel-title-row"><div><h3>Procurement Register</h3><small>{rows.length} purchases matching filters · up to {procurementAsOnDate}</small></div></div><Table><thead><tr><th>Purchase</th><th>Date</th><th>Supplier</th><th>Total</th><th>Paid</th><th>Due</th><th>Status</th><th>Payment</th><th>Audit</th></tr></thead><tbody>{rows.map(p=><tr key={p.id}>
         <td className="link" onClick={()=>{setEditingPurchase(p.id);setPurchaseDate(p.purchase_date);setPurchaseSupplier(String(p.supplier_id));setPurchaseItems((p.purchase_items||[]).map(x=>({item_id:String(x.item_id),rate:x.rate,qty:x.qty})));setPurchasePayment(p.payment_status);setPurchasePaid(p.paid_amount);setPurchaseReceiver(p.receiver_id?String(p.receiver_id):"");setPurchasePaymentMode(p.payment_mode||"CASH");setPurchaseTransport(p.transportation_charge||0);setPurchaseLoading(p.loading_charge||0);setPurchaseUnloading(p.unloading_charge||0);setPurchaseChargesPaidBy(p.charges_paid_by||"Business");setPurchaseChargesReceiver(p.charges_receiver_id?String(p.charges_receiver_id):"");go("purchase")}}>{p.purchase_no}</td>
         <td>{p.purchase_date}</td><td className="link" onClick={()=>{const s=suppliers.find(x=>x.id===Number(p.supplier_id));if(s){setEditingSupplier(s.id);setSupplierForm({supplier_name:s.supplier_name,mobile_no:s.mobile_no||"",address:s.address||"",opening_due:s.opening_due||0});setMasterTab("suppliers");setShowSupplierForm(true);go("master")}}}>{p.suppliers?.supplier_name}</td>
         <td>{money(p.total_amount)}</td><td>{money(p.paid_amount)}</td><td>{money(p.due_amount)}</td><td><Status status={p.payment_status}/></td>
-        <td>{Number(p.due_amount)>0?<button className="small-btn primary" onClick={()=>{setPurchasePaymentId(p.id);setPurchasePaymentAmount("");setPurchasePaymentDate(today());setPurchasePaymentReceiver(p.receiver_id?String(p.receiver_id):"");setPurchasePaymentMode(p.payment_mode||"CASH");setPurchasePaymentNote(`Payment for ${p.purchase_no}`)}}>Payment</button>:<span className="status paid">Paid</span>}</td>
-      </tr>)}{!rows.length&&<Empty col="8" text="No purchases match the selected filters."/>}</tbody></Table></div>
+        <td>{Number(p.due_amount)>0?<button className="small-btn primary" onClick={()=>{setPurchasePaymentId(p.id);setPurchasePaymentAmount("");setPurchasePaymentDate(today());setPurchasePaymentReceiver(p.receiver_id?String(p.receiver_id):"");setPurchasePaymentMode(p.payment_mode||"CASH");setPurchasePaymentNote(`Payment for ${p.purchase_no}`)}}>Payment</button>:<span className="status paid">Paid</span>}</td><td><button type="button" className="small-btn secondary" onClick={()=>setAuditTarget({table:"purchases",id:p.id,label:p.purchase_no})}>Audit</button></td>
+      </tr>)}{!rows.length&&<Empty col="9" text="No purchases match the selected filters."/>}</tbody></Table></div>
       {purchasePaymentId&&<PurchasePaymentModal/>}
     </>
   }
@@ -1368,14 +1364,6 @@ function Sidebar() {
       </form>
     </>
   }
-  function AuditTrail(){
-    return <><Header title="Audit Trail"><button className="btn secondary" onClick={()=>loadAll()}>↻ Refresh</button></Header>
-      <div className="panel"><div className="panel-title-row"><div><h3>Transaction History</h3><small>System record of important inserts, updates and payments</small></div></div>
-        <Table><thead><tr><th>Date & Time</th><th>User</th><th>Role</th><th>Table</th><th>Record ID</th><th>Action</th><th>Details</th></tr></thead>
-        <tbody>{auditLogs.map(x=><tr key={x.id}><td>{new Date(x.created_at).toLocaleString("en-IN")}</td><td><b>{x.user_name||"System"}</b></td><td><span className={x.user_role==="admin"?"role-badge admin":"role-badge receiver"}>{x.user_role||"system"}</span></td><td>{x.table_name}</td><td>{x.record_id||"-"}</td><td><span className="audit-action">{x.action}</span></td><td>{typeof x.details==="object"?JSON.stringify(x.details):x.details||"-"}</td></tr>)}{!auditLogs.length&&<Empty col="7" text="No audit history yet."/>}</tbody></Table>
-      </div></>
-  }
-
   function Master(){
     const masterOptions = [
       {id:"customers", label:"Customers", icon:"👥", count:customers.length},
@@ -1500,19 +1488,23 @@ function Sidebar() {
   function MasterCard({title,count,button,onClick,onAdd,active}){return <div className={active?"master-card active":"master-card"} onClick={onClick} role="button" tabIndex={0} onKeyDown={e=>{if(e.key==="Enter"||e.key===" ")onClick()}}><h3>{title}</h3><strong>{count}</strong><span>Records</span><button type="button" className="btn primary" onClick={e=>{e.stopPropagation();onAdd()}}>{button}</button></div>}
 
   function Reports(){
-    const dueRows=sales.filter(s=>Number(s.due_amount)>0&&s.invoice_date<=reportAsOnDate);
+    const from=reportDateFrom||"0000-01-01";
+    const to=reportDateTo||today();
+    const q=String(reportSearch||"").trim().toLowerCase();
+    const inRange=(date)=>!!date && date>=from && date<=to;
+    const dueRows=sales.filter(s=>Number(s.due_amount)>0&&s.invoice_date<=to&&(!q||String(s.invoice_no||"").toLowerCase().includes(q)||String(s.customers?.customer_name||"").toLowerCase().includes(q)));
+    const reportSales=sales.filter(s=>inRange(s.invoice_date)&&(!q||String(s.invoice_no||"").toLowerCase().includes(q)||String(s.customers?.customer_name||"").toLowerCase().includes(q)));
+    const reportCollections=collections.filter(c=>inRange(c.collection_date)&&(!q||String(c.collection_no||"").toLowerCase().includes(q)||String(c.customers?.customer_name||"").toLowerCase().includes(q)));
+    const reportStock=items.map(it=>({it,qty:stockTxns.filter(t=>t.item_id===it.id&&t.transaction_date<=to).reduce((a,t)=>a+Number(t.qty_in||0)-Number(t.qty_out||0),Number(it.opening_stock||0))}));
     const reportOptions=[
-      {id:"invoices",label:"Invoice Report",icon:"🧾",count:sales.filter(s=>s.invoice_date<=reportAsOnDate).length},
-      {id:"stock",label:"Stock Report",icon:"📦",count:items.length},
-      {id:"collections",label:"Collection Report",icon:"💰",count:collections.filter(c=>c.collection_date<=reportAsOnDate).length},
-      {id:"dues",label:"Due Report",icon:"⚠️",count:dueRows.length}
+      {id:"invoices",label:"Invoice Report",icon:"🧾"},
+      {id:"stock",label:"Stock Report",icon:"📦"},
+      {id:"collections",label:"Collection Report",icon:"💰"},
+      {id:"dues",label:"Due Report",icon:"⚠️"}
     ];
-    const reportSales=sales.filter(s=>inPeriod(s.invoice_date,reportPeriod,reportAsOnDate));
-    const reportCollections=collections.filter(c=>inPeriod(c.collection_date,reportPeriod,reportAsOnDate));
-    const reportStock=items.map(it=>({it,qty:stockTxns.filter(t=>t.item_id===it.id&&t.transaction_date<=reportAsOnDate).reduce((a,t)=>a+Number(t.qty_in||0)-Number(t.qty_out||0),Number(it.opening_stock||0))}));
     function downloadReportPdf(){
       const doc=new jsPDF(); const title=reportOptions.find(x=>x.id===reportTab)?.label||"Report";
-      doc.setFontSize(16);doc.text(`B REDDY SALES - ${title}`,14,16);doc.setFontSize(9);doc.text(`As on: ${reportAsOnDate} | Period: ${reportPeriod==="day"?"Day":reportPeriod==="week"?"Week":"This Month"}`,14,23);
+      doc.setFontSize(16);doc.text(`B REDDY SALES - ${title}`,14,16);doc.setFontSize(9);doc.text(`From: ${reportDateFrom||"-"} | To: ${reportDateTo||today()}`,14,23);
       let y=32;
       const rows=reportTab==="invoices"?reportSales.map(x=>[x.invoice_no,x.customers?.customer_name||"-",x.invoice_date,money(x.total_amount),money(x.paid_amount),money(x.due_amount)])
         :reportTab==="collections"?reportCollections.map(x=>[x.collection_no,x.collection_date,x.customers?.customer_name||"-",x.receivers?.receiver_name||"-",x.payment_mode==="PHONEPE"?"PhonePe":"Cash",money(x.total_amount),x.remarks||"-"])
@@ -1521,25 +1513,41 @@ function Sidebar() {
       const heads=reportTab==="invoices"?["Invoice","Customer","Date","Amount","Paid","Due"]:reportTab==="collections"?["Collection","Date","Customer","Receiver","Received As","Amount","Remarks"]:reportTab==="stock"?["Master","Item","Stock","Sale Rate"]:["Invoice","Customer","Date","Amount","Due"];
       doc.setFont("helvetica","bold");doc.text(heads.join(" | "),14,y);y+=7;doc.setFont("helvetica","normal");
       rows.forEach(r=>{const line=r.join(" | ");const wrapped=doc.splitTextToSize(line,180);if(y+wrapped.length*5>285){doc.addPage();y=18;doc.setFont("helvetica","bold");doc.text(heads.join(" | "),14,y);y+=7;doc.setFont("helvetica","normal")}doc.text(wrapped,14,y);y+=Math.max(5,wrapped.length*5)});
-      doc.save(`${title.replace(/\s+/g,"-").toLowerCase()}-${reportAsOnDate}.pdf`);
+      doc.save(`${title.replace(/\s+/g,"-").toLowerCase()}-${reportDateTo||today()}.pdf`);
     }
     return <>
       <Header title="Reports"/>
       <div className="panel report-controls">
-        <div className="period-buttons">{[["day","Day"],["week","Week"],["month","This Month"]].map(([id,label])=><button type="button" key={id} className={reportPeriod===id?"period-btn active":"period-btn"} onClick={()=>setReportPeriod(id)}>{label}</button>)}</div>
-        <label className="asof-label">As on Date<input type="date" value={reportAsOnDate} onChange={e=>setReportAsOnDate(e.target.value)}/></label>
-        <button type="button" className="btn secondary" onClick={downloadReportPdf}>⬇ Download PDF</button>
+        <div className="report-tabs">{reportOptions.map(r=><button key={r.id} type="button" className={reportTab===r.id?"period-btn active":"period-btn"} onClick={()=>setReportTab(r.id)}>{r.icon} {r.label}</button>)}</div>
+        <div className="report-filter-row">
+          <label>From Date<input type="date" value={reportDateFrom} onChange={e=>setReportDateFrom(e.target.value)}/></label>
+          <label>To Date<input type="date" value={reportDateTo} onChange={e=>setReportDateTo(e.target.value)}/></label>
+          <label>Search<input placeholder={reportTab==="collections"?"Collection no. / customer":reportTab==="stock"?"Item / master":"Invoice no. / customer"} value={reportSearch} onChange={e=>setReportSearch(e.target.value)}/></label>
+          <button type="button" className="btn secondary" onClick={()=>{setReportDateFrom("");setReportDateTo(today());setReportSearch("")}}>Clear</button>
+          <button type="button" className="btn secondary" onClick={downloadReportPdf}>⬇ Download PDF</button>
+        </div>
       </div>
-      <div className="reports-layout">
-        <aside className="reports-sidebar"><div className="reports-sidebar-title">Reports</div><div className="reports-sidebar-list">{reportOptions.map(r=><button key={r.id} type="button" className={reportTab===r.id?"report-side-btn active":"report-side-btn"} onClick={()=>setReportTab(r.id)}><span className="report-side-icon">{r.icon}</span><span className="report-side-label">{r.label}</span><span className="report-side-count">{r.count}</span></button>)}</div></aside>
-        <main className="reports-content">
-          {reportTab==="invoices"&&<div className="panel"><div className="report-heading"><div><h3>Invoice Report</h3><small>{reportSales.length} invoices · {money(reportSales.reduce((a,x)=>a+Number(x.total_amount||0),0))}</small></div></div><Table><thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Amount</th><th>Paid</th><th>Due</th><th>Status</th></tr></thead><tbody>{reportSales.map(s=><tr key={s.id}><td className="link" onClick={()=>{setSelectedInvoice(s);go("invoice-detail")}}>{s.invoice_no}</td><td>{s.customers?.customer_name||"-"}</td><td>{s.invoice_date}</td><td>{money(s.total_amount)}</td><td>{money(s.paid_amount)}</td><td>{money(s.due_amount)}</td><td><Status status={s.payment_status}/></td></tr>)}{!reportSales.length&&<Empty col="7" text="No invoices for selected period."/>}</tbody></Table></div>}
-          {reportTab==="stock"&&<div className="panel"><div className="report-heading"><div><h3>Stock Report</h3><small>Opening stock and available stock as on {reportAsOnDate}</small></div></div><Table><thead><tr><th>Item</th><th>Opening Stock</th><th>Purchases</th><th>Sales</th><th>Available Stock</th></tr></thead><tbody>{reportStock.map(({it,qty})=>{const tx=stockTxns.filter(t=>t.item_id===it.id&&t.transaction_date<=reportAsOnDate);return <tr key={it.id}><td>{it.item_name}</td><td>{it.opening_stock}</td><td>{tx.reduce((a,t)=>a+Number(t.qty_in||0),0)}</td><td>{tx.reduce((a,t)=>a+Number(t.qty_out||0),0)}</td><td><b>{qty}</b></td></tr>})}{!reportStock.length&&<Empty col="5" text="No stock items."/>}</tbody></Table></div>}
-          {reportTab==="collections"&&<div className="panel"><div className="report-heading"><div><h3>Collection Report</h3><small>{reportCollections.length} collections · {money(reportCollections.reduce((a,x)=>a+Number(x.total_amount||0),0))}</small></div></div><Table><thead><tr><th>Collection No.</th><th>Date</th><th>Customer</th><th>Receiver</th><th>Received As</th><th>Amount</th><th>Remarks</th></tr></thead><tbody>{reportCollections.map(c=><tr key={c.id}><td className="link" onClick={()=>editCollection(c)}>{c.collection_no||"-"}</td><td>{c.collection_date}</td><td>{c.customers?.customer_name||"-"}</td><td>{c.receivers?.receiver_name||"-"}</td><td>{c.payment_mode==="PHONEPE"?"PhonePe":"Cash"}</td><td>{money(c.total_amount)}</td><td>{c.remarks||"-"}</td></tr>)}{!reportCollections.length&&<Empty col="6" text="No collections for selected period."/>}</tbody></Table></div>}
-          {reportTab==="dues"&&<div className="panel"><div className="report-heading"><div><h3>Due Report</h3><small>Outstanding invoices as on {reportAsOnDate}</small></div></div><Table><thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Amount</th><th>Due</th><th>Age</th></tr></thead><tbody>{dueRows.map(s=>{const age=Math.max(0,Math.floor((new Date(reportAsOnDate)-new Date(s.invoice_date))/86400000));return <tr key={s.id}><td className="link" onClick={()=>{setSelectedInvoice(s);go("invoice-detail")}}>{s.invoice_no}</td><td>{s.customers?.customer_name||"-"}</td><td>{s.invoice_date}</td><td>{money(s.total_amount)}</td><td>{money(s.due_amount)}</td><td>{age} days</td></tr>})}{!dueRows.length&&<Empty col="6" text="No dues."/>}</tbody></Table></div>}
-        </main>
+      <div className="reports-content-full">
+        {reportTab==="invoices"&&<div className="panel"><div className="report-heading"><div><h3>Invoice Report</h3><small>{reportSales.length} invoices</small></div></div><Table><thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Amount</th><th>Paid</th><th>Due</th><th>Status</th></tr></thead><tbody>{reportSales.map(s=><tr key={s.id}><td className="link" onClick={()=>{setSelectedInvoice(s);go("invoice-detail")}}>{s.invoice_no}</td><td>{s.customers?.customer_name||"-"}</td><td>{s.invoice_date}</td><td>{money(s.total_amount)}</td><td>{money(s.paid_amount)}</td><td>{money(s.due_amount)}</td><td><Status status={s.payment_status}/></td></tr>)}{!reportSales.length&&<Empty col="7" text="No invoices for selected period."/>}</tbody></Table></div>}
+        {reportTab==="stock"&&<div className="panel"><div className="report-heading"><div><h3>Stock Report</h3><small>Stock as on {reportDateTo||today()}</small></div></div><Table><thead><tr><th>Item</th><th>Opening Stock</th><th>Purchases</th><th>Sales</th><th>Available Stock</th></tr></thead><tbody>{reportStock.map(({it,qty})=>{const tx=stockTxns.filter(t=>t.item_id===it.id&&t.transaction_date<=to);return <tr key={it.id}><td>{it.item_name}</td><td>{it.opening_stock}</td><td>{tx.reduce((a,t)=>a+Number(t.qty_in||0),0)}</td><td>{tx.reduce((a,t)=>a+Number(t.qty_out||0),0)}</td><td><b>{qty}</b></td></tr>})}{!reportStock.length&&<Empty col="5" text="No stock items."/>}</tbody></Table></div>}
+        {reportTab==="collections"&&<div className="panel"><div className="report-heading"><div><h3>Collection Report</h3><small>{reportCollections.length} collections</small></div></div><Table><thead><tr><th>Collection No.</th><th>Date</th><th>Customer</th><th>Receiver</th><th>Received As</th><th>Amount</th><th>Remarks</th></tr></thead><tbody>{reportCollections.map(c=><tr key={c.id}><td className="link" onClick={()=>editCollection(c)}>{c.collection_no||"-"}</td><td>{c.collection_date}</td><td>{c.customers?.customer_name||"-"}</td><td>{c.receivers?.receiver_name||"-"}</td><td>{c.payment_mode==="PHONEPE"?"PhonePe":"Cash"}</td><td>{money(c.total_amount)}</td><td>{c.remarks||"-"}</td></tr>)}{!reportCollections.length&&<Empty col="7" text="No collections for selected period."/>}</tbody></Table></div>}
+        {reportTab==="dues"&&<div className="panel"><div className="report-heading"><div><h3>Due Report</h3><small>Outstanding dues up to {reportDateTo||today()}</small></div></div><Table><thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Amount</th><th>Due</th><th>Age</th></tr></thead><tbody>{dueRows.map(s=>{const age=Math.max(0,Math.floor((new Date(to)-new Date(s.invoice_date))/86400000));return <tr key={s.id}><td className="link" onClick={()=>{setSelectedInvoice(s);go("invoice-detail")}}>{s.invoice_no}</td><td>{s.customers?.customer_name||"-"}</td><td>{s.invoice_date}</td><td>{money(s.total_amount)}</td><td>{money(s.due_amount)}</td><td>{age} days</td></tr>})}{!dueRows.length&&<Empty col="6" text="No dues."/>}</tbody></Table></div>}
       </div>
     </>
+  }
+
+
+  function AuditModal(){
+    if(!auditTarget) return null;
+    const rows=auditLogs.filter(x=>x.table_name===auditTarget.table && Number(x.record_id)===Number(auditTarget.id));
+    return <div className="modal-backdrop">
+      <div className="modal audit-modal">
+        <div className="modal-head"><div><h3>Audit Trail — {auditTarget.label}</h3><small>Only changes related to this transaction</small></div><button type="button" onClick={()=>setAuditTarget(null)}>×</button></div>
+        <Table><thead><tr><th>Date & Time</th><th>User</th><th>Role</th><th>Action</th><th>Details</th></tr></thead>
+          <tbody>{rows.map(x=><tr key={x.id}><td>{new Date(x.created_at).toLocaleString("en-IN")}</td><td>{x.user_name||"System"}</td><td>{x.user_role||"System"}</td><td><span className="audit-action">{x.action}</span></td><td>{typeof x.details==="object"?JSON.stringify(x.details):x.details||"-"}</td></tr>)}{!rows.length&&<Empty col="5" text="No audit history found for this transaction."/>}</tbody>
+        </Table>
+      </div>
+    </div>;
   }
 
   if(authLoading) return <div className="auth-screen"><div className="auth-card"><div className="brand auth-brand">B REDDY SALES<span>Retail Management</span></div><div className="loading">Checking login…</div></div></div>;
@@ -1553,45 +1561,5 @@ function Sidebar() {
     loginBusy={loginBusy}
   />;
   if (loading) return <div className="loading">Loading B Reddy Sales…</div>;
-  return <>
-    <style>{`
-      .mobile-menu-button{display:none;position:fixed;left:14px;top:14px;z-index:1200;border:0;border-radius:12px;background:#16233b;color:#fff;padding:11px 14px;font-size:20px;box-shadow:0 5px 18px rgba(0,0,0,.18)}
-      .mobile-menu-overlay{display:none}
-      .mobile-sidebar-head{display:none}
-      .nav-icon{width:24px;display:inline-flex;justify-content:center}
-      @media(max-width:760px){
-        .mobile-menu-button{display:flex;align-items:center;gap:8px}
-        .mobile-menu-overlay{display:block;position:fixed;inset:0;background:rgba(0,0,0,.38);z-index:1090}
-        .sidebar{position:fixed!important;left:-290px;top:0;bottom:0;width:270px!important;height:100vh!important;z-index:1100;transition:left .22s ease;box-shadow:8px 0 24px rgba(0,0,0,.18);overflow-y:auto}
-        .sidebar.open{left:0}
-        .desktop-brand{display:none!important}
-        .mobile-sidebar-head{display:flex;align-items:flex-start;justify-content:space-between;padding:18px 16px 10px}
-        .mobile-sidebar-head .brand{display:block;padding:0;margin:0}
-        .mobile-close{border:0;background:transparent;color:#fff;font-size:32px;line-height:1;padding:0 4px}
-        .main{margin-left:0!important;width:100%!important;padding-top:62px!important}
-        .header{padding-top:8px!important}
-        .header h1{padding-left:4px}
-        .header-right{gap:6px}
-        .header-right .user-chip{max-width:160px}
-        .header-right .user-chip>div{display:none}
-        .header-right .logout-btn{font-size:12px;padding:7px 8px}
-        .notice{position:fixed!important;left:12px!important;right:12px!important;top:62px!important;z-index:1300!important;max-width:none!important}
-        .dashboard-filter{grid-template-columns:1fr!important}
-        .period-buttons{display:grid!important;grid-template-columns:repeat(3,1fr)!important;width:100%!important}
-        .period-btn{min-height:46px!important}
-        .cards{grid-template-columns:1fr 1fr!important}
-        .card strong{font-size:22px!important}
-        .toolbar{grid-template-columns:1fr!important}
-        .toolbar .btn{width:100%}
-        .panel{overflow-x:auto}
-        .table-wrap{overflow-x:auto}
-        table{min-width:650px}
-        .reports-layout,.master-layout{grid-template-columns:1fr!important}
-        .reports-sidebar,.master-sidebar{position:static!important}
-      }
-    `}</style>
-    {mobileMenuOpen&&<div className="mobile-menu-overlay" onClick={()=>setMobileMenuOpen(false)} />}
-    <button type="button" className="mobile-menu-button" aria-label="Open menu" onClick={()=>setMobileMenuOpen(true)}>☰ <span>Menu</span></button>
-    <div className="app"><Sidebar/><main className="main">{notice&&<div className="notice">{notice}</div>}{screen==="dashboard"&&Dashboard()}{screen==="create-sale"&&CreateSale()}{screen==="sales"&&Sales()}{screen==="customers"&&Customers()}{screen==="customer-detail"&&CustomerDetail()}{screen==="invoice-detail"&&InvoiceDetail()}{screen==="collections"&&Collections()}{screen==="payment"&&Payment()}{screen==="stock"&&Stock()}{screen==="procurement"&&Procurement()}{screen==="purchase"&&Purchase()}{screen==="expenses"&&Expenses()}{screen==="reports"&&Reports()}{screen==="audit"&&AuditTrail()}{screen==="master"&&Master()}</main></div>
-  </>;
+  return <><div className="app"><Sidebar/><main className="main">{notice&&<div className="notice" style={{position:"fixed",top:"18px",right:"18px",left:"auto",zIndex:3000,maxWidth:"min(620px,calc(100vw - 36px))",whiteSpace:"normal"}}>{notice}</div>}{screen==="dashboard"&&Dashboard()}{screen==="create-sale"&&CreateSale()}{screen==="sales"&&Sales()}{screen==="customers"&&Customers()}{screen==="customer-detail"&&CustomerDetail()}{screen==="invoice-detail"&&InvoiceDetail()}{screen==="collections"&&Collections()}{screen==="payment"&&Payment()}{screen==="stock"&&Stock()}{screen==="procurement"&&Procurement()}{screen==="purchase"&&Purchase()}{screen==="expenses"&&Expenses()}{screen==="reports"&&Reports()}{screen==="master"&&Master()}</main></div>{auditTarget&&<AuditModal/>}</>;
 }
