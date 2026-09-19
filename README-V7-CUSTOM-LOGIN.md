@@ -36,3 +36,7 @@ Push the project to GitHub and deploy it in Vercel. The browser never receives t
 - The server API checks the logged-in user's role before mutations.
 - The service-role key is server-only.
 - Audit entries are written by the server API with user name and role.
+
+
+## V7.1 build fix
+The server-only session and Supabase admin helpers are now located under `app/api/server/` so Next.js/Vercel resolves them reliably from API routes.
