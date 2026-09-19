@@ -90,6 +90,11 @@ export default function Home() {
   const [salesDashboardPeriod, setSalesDashboardPeriod] = useState("day");
   const [collectionsDashboardPeriod, setCollectionsDashboardPeriod] = useState("day");
   const [dueDashboardPeriod, setDueDashboardPeriod] = useState("month");
+  const [dashboardPeriod, setDashboardPeriod] = useState("month");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [expenseSearch, setExpenseSearch] = useState("");
+  const [expensePaymentModeFilter, setExpensePaymentModeFilter] = useState("");
+  const [paymentPurchaseSearch, setPaymentPurchaseSearch] = useState("");
   const [dashboardAsOnDate, setDashboardAsOnDate] = useState(today());
   const [salesAsOnDate, setSalesAsOnDate] = useState(today());
   const [collectionsAsOnDate, setCollectionsAsOnDate] = useState(today());
@@ -198,8 +203,8 @@ export default function Home() {
   useEffect(() => {
     if (!sessionUser || !profile) return;
     loadAll();
-    const timer = setInterval(loadAll, 30000);
-    return () => clearInterval(timer);
+    // No automatic polling. Refresh data only after user actions or navigation.
+    return undefined;
   }, [sessionUser?.id, profile?.role]);
 
   async function loadUserProfile() {
@@ -259,7 +264,7 @@ export default function Home() {
       setCustomers(c.data || []); setItems(i.data || []); setReceivers(r.data || []);
       setSuppliers(s.data || []); setSales(sa.data || []); setCollections(co.data || []);
       setPurchases(pu.data || []); setStockTxns(st.data || []);
-      setExpenseTypes(et.data || []); setExpenses(ex.data || []); setAuditLogs(au.data || []); setUserProfiles(up?.data || []);
+      setExpenseTypes(et.data || []); setExpenses(ex.data || []); setAuditLogs(au.data || []);
     } catch (err) {
       setNotice(err?.message || "Unable to load application data.");
     } finally {
@@ -308,9 +313,10 @@ export default function Home() {
     if(period==="week"){ const start=new Date(end); start.setDate(end.getDate()-end.getDay()); start.setHours(0,0,0,0); return d>=start; }
     return d.getFullYear()===end.getFullYear() && d.getMonth()===end.getMonth();
   };
-  const periodSales=sales.filter(s=>inPeriod(s.invoice_date,salesDashboardPeriod,dashboardAsOnDate));
-  const periodCollections=collections.filter(c=>inPeriod(c.collection_date,collectionsDashboardPeriod,dashboardAsOnDate));
-  const periodDueSales=sales.filter(s=>inPeriod(s.invoice_date,dueDashboardPeriod,dashboardAsOnDate));
+  const dashboardPeriodEnd=today();
+  const periodSales=sales.filter(s=>inPeriod(s.invoice_date,dashboardPeriod,dashboardPeriodEnd));
+  const periodCollections=collections.filter(c=>inPeriod(c.collection_date,dashboardPeriod,dashboardPeriodEnd));
+  const periodDueSales=sales.filter(s=>inPeriod(s.invoice_date,dashboardPeriod,dashboardPeriodEnd));
   const periodSalesTotal=periodSales.reduce((a,x)=>a+Number(x.total_amount||0),0);
   const periodCollectionsTotal=periodCollections.reduce((a,x)=>a+Number(x.total_amount||0),0);
   const periodDueTotal=periodDueSales.reduce((a,x)=>a+Number(x.due_amount||0),0);
@@ -319,7 +325,7 @@ export default function Home() {
     const costRate=Number(line.cost_rate||0) || Number(item?.purchase_rate||0);
     return sum + Number(line.qty||0)*costRate;
   },0),0);
-  const periodExpenses=expenses.filter(e=>inPeriod(e.expense_date,salesDashboardPeriod,dashboardAsOnDate)).reduce((a,x)=>a+Number(x.amount||0),0);
+  const periodExpenses=expenses.filter(e=>inPeriod(e.expense_date,dashboardPeriod,dashboardPeriodEnd)).reduce((a,x)=>a+Number(x.amount||0),0);
   const periodGrossProfit=periodSalesTotal-periodSalesCost;
   const periodNetProfit=periodGrossProfit-periodExpenses;
 
@@ -818,13 +824,28 @@ export default function Home() {
   }
 
   function Expenses(){
-    const filtered=expenses.filter(x=>(!expenseDateFrom||x.expense_date>=expenseDateFrom)&&(!expenseDateTo||x.expense_date<=expenseDateTo)&&(!expenseTypeFilter||x.expense_type_id===Number(expenseTypeFilter))&&(!expensePaidByFilter||x.paid_by===expensePaidByFilter)&&(!expenseReceiverFilter||x.receiver_id===Number(expenseReceiverFilter)));
-    function openEdit(x){
-      setEditingExpense(x.id);setExpenseForm({expense_date:x.expense_date,expense_type_id:String(x.expense_type_id),amount:x.amount,paid_by:x.paid_by,receiver_id:x.receiver_id?String(x.receiver_id):"",payment_mode:x.payment_mode||"CASH",reference_type:x.reference_type||"",reference_id:x.reference_id?String(x.reference_id):"",remarks:x.remarks||""});setShowExpenseForm(true);
-    }
+    const q=String(expenseSearch||"").trim().toLowerCase();
+    const filtered=expenses.filter(x=>{
+      const hay=`${x.remarks||""} ${x.reference_type||""} ${x.reference_id||""} ${x.expense_types?.type_name||""} ${x.receivers?.receiver_name||""}`.toLowerCase();
+      return (!q||hay.includes(q))&&(!expenseDateFrom||x.expense_date>=expenseDateFrom)&&(!expenseDateTo||x.expense_date<=expenseDateTo)&&(!expenseTypeFilter||x.expense_type_id===Number(expenseTypeFilter))&&(!expensePaidByFilter||x.paid_by===expensePaidByFilter)&&(!expenseReceiverFilter||x.receiver_id===Number(expenseReceiverFilter))&&(!expensePaymentModeFilter||x.payment_mode===expensePaymentModeFilter);
+    });
+    function clearFilters(){setExpenseSearch("");setExpenseDateFrom("");setExpenseDateTo("");setExpenseTypeFilter("");setExpensePaidByFilter("");setExpenseReceiverFilter("");setExpensePaymentModeFilter("");}
+    function openEdit(x){setEditingExpense(x.id);setExpenseForm({expense_date:x.expense_date,expense_type_id:String(x.expense_type_id),amount:x.amount,paid_by:x.paid_by,receiver_id:x.receiver_id?String(x.receiver_id):"",payment_mode:x.payment_mode||"CASH",reference_type:x.reference_type||"",reference_id:x.reference_id?String(x.reference_id):"",remarks:x.remarks||""});setShowExpenseForm(true);}
     return <><Header title="Expenses"><button className="btn primary" onClick={()=>{setEditingExpense(null);setExpenseForm({...emptyExpense,expense_date:today()});setShowExpenseForm(true)}}>＋ Add Expense</button></Header>
-      <div className="panel expense-filters"><label>From Date<input type="date" value={expenseDateFrom} onChange={e=>setExpenseDateFrom(e.target.value)}/></label><label>To Date<input type="date" value={expenseDateTo} onChange={e=>setExpenseDateTo(e.target.value)}/></label><label>Expense Type<select value={expenseTypeFilter} onChange={e=>setExpenseTypeFilter(e.target.value)}><option value="">All Types</option>{expenseTypes.map(t=><option key={t.id} value={t.id}>{t.type_name}</option>)}</select></label><button type="button" className="btn secondary" onClick={()=>{setExpenseDateFrom("");setExpenseDateTo("");setExpenseTypeFilter("")}}>Clear</button></div>
-      <div className="panel"><div className="panel-title-row"><div><h3>Expense Register</h3><small>Total: {money(filtered.reduce((a,x)=>a+Number(x.amount||0),0))}</small></div></div><Table><thead><tr><th>Date</th><th>Expense Type</th><th>Amount</th><th>Paid By</th><th>Receiver</th><th>Paid As</th><th>Reference</th><th>Remarks</th><th>Audit</th></tr></thead><tbody>{filtered.map(x=><tr key={x.id}><td>{x.expense_date}</td><td>{x.expense_types?.type_name}</td><td>{money(x.amount)}</td><td>{x.paid_by}</td><td>{x.receivers?.receiver_name||"-"}</td><td>{x.payment_mode==="PHONEPE"?"PhonePe":"Cash"}</td><td className={x.reference_type==="PURCHASE"?"link":""} onClick={()=>x.reference_type==="PURCHASE"&&x.reference_id&&(()=>{const pp=purchases.find(z=>z.id===Number(x.reference_id));if(pp){setEditingPurchase(pp.id);setPurchaseDate(pp.purchase_date);setPurchaseSupplier(String(pp.supplier_id));setPurchaseItems((pp.purchase_items||[]).map(q=>({item_id:String(q.item_id),rate:q.rate,qty:q.qty})));go("purchase")}})()}>{x.reference_type?`${x.reference_type} #${x.reference_id}`:"-"}</td><td>{x.remarks||"-"}</td><td><button type="button" className="small-btn secondary" onClick={()=>setAuditTarget({table:"expenses",id:x.id,label:`Expense #${x.id}`})}>Audit</button></td></tr>)}{!filtered.length&&<Empty col="9" text="No expenses found."/>}</tbody></Table></div>
+      <div className="panel expense-filter-panel">
+        <div className="filter-title"><div><b>Expense Filters</b><small>Search, date, type, payment and receiver</small></div><span>{filtered.length} records</span></div>
+        <div className="filter-grid expense-filter-grid">
+          <label className="filter-search">Search<input placeholder="Expense type / remarks / reference / receiver" value={expenseSearch} onChange={e=>setExpenseSearch(e.target.value)}/></label>
+          <label>From Date<input type="date" value={expenseDateFrom} onChange={e=>setExpenseDateFrom(e.target.value)}/></label>
+          <label>To Date<input type="date" value={expenseDateTo} onChange={e=>setExpenseDateTo(e.target.value)}/></label>
+          <label>Expense Type<select value={expenseTypeFilter} onChange={e=>setExpenseTypeFilter(e.target.value)}><option value="">All Types</option>{expenseTypes.map(t=><option key={t.id} value={t.id}>{t.type_name}</option>)}</select></label>
+          <label>Paid By<select value={expensePaidByFilter} onChange={e=>setExpensePaidByFilter(e.target.value)}><option value="">All</option><option>Business</option><option>Supplier</option></select></label>
+          <label>Receiver<select value={expenseReceiverFilter} onChange={e=>setExpenseReceiverFilter(e.target.value)}><option value="">All Receivers</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name}</option>)}</select></label>
+          <label>Paid As<select value={expensePaymentModeFilter} onChange={e=>setExpensePaymentModeFilter(e.target.value)}><option value="">All Modes</option><option value="CASH">Cash</option><option value="PHONEPE">PhonePe</option></select></label>
+          <button type="button" className="btn secondary filter-clear" onClick={clearFilters}>Clear All</button>
+        </div>
+      </div>
+      <div className="panel"><div className="panel-title-row"><div><h3>Expense Register</h3><small>Total: {money(filtered.reduce((a,x)=>a+Number(x.amount||0),0))}</small></div></div><Table><thead><tr><th>Date</th><th>Expense Type</th><th>Amount</th><th>Paid By</th><th>Receiver</th><th>Paid As</th><th>Reference</th><th>Remarks</th><th>Action</th></tr></thead><tbody>{filtered.map(x=><tr key={x.id}><td>{x.expense_date}</td><td>{x.expense_types?.type_name}</td><td>{money(x.amount)}</td><td>{x.paid_by}</td><td>{x.receivers?.receiver_name||"-"}</td><td>{x.payment_mode==="PHONEPE"?"PhonePe":"Cash"}</td><td className={x.reference_type==="PURCHASE"?"link":""}>{x.reference_type?`${x.reference_type} #${x.reference_id}`:"-"}</td><td>{x.remarks||"-"}</td><td><button type="button" className="small-btn secondary" onClick={()=>setAuditTarget({table:"expenses",id:x.id,label:`Expense #${x.id}`})}>Audit</button><button type="button" className="small-btn secondary" onClick={()=>openEdit(x)}>Edit</button></td></tr>)}{!filtered.length&&<Empty col="9" text="No expenses found."/>}</tbody></Table></div>
       {showExpenseForm&&ExpenseForm()}
     </>
   }
@@ -880,26 +901,26 @@ export default function Home() {
   }
 
 function Sidebar() {
-    const all=[["dashboard","🏠","Dashboard"],["sales","🧾","Sales"],["customers","👥","Customers"],["collections","💰","Collections"],["payment","💳","Payment"],["stock","📦","Stock"],["procurement","🛒","Procurement"],["expenses","💸","Expenses"],["reports","📊","Reports"],["master","⚙️","Master"]];
+    const all=[["dashboard","🏠","Dashboard"],["sales","🧾","Sales"],["customers","👥","Customers"],["collections","💰","Collections"],["payment","💳","Purchase Payments"],["stock","📦","Stock"],["procurement","🛒","Procurement"],["expenses","💸","Expenses"],["reports","📊","Reports"],["master","⚙️","Master"]];
     const links=profile?.role==="receiver"?all.filter(x=>["dashboard","sales","customers","collections","payment","stock","reports"].includes(x[0])):all;
-    return <aside className="sidebar"><div className="brand">B REDDY SALES<span>{profile?.role==="receiver"?"Receiver Login":"Admin Login"}</span></div>{links.map(([id,icon,label])=><button key={id} className={screen===id?"nav active":"nav"} onClick={()=>go(id)}>{icon}<span>{label}</span></button>)}<button className="nav mobile-logout" onClick={logout}>🚪<span>Logout</span></button></aside>
+    return <><div className={mobileMenuOpen?"mobile-overlay open":"mobile-overlay"} onClick={()=>setMobileMenuOpen(false)}></div><aside className={mobileMenuOpen?"sidebar mobile-open":"sidebar"}><div className="brand">B REDDY SALES<span>{profile?.role==="receiver"?"Receiver Login":"Admin Login"}</span><button type="button" className="mobile-close" onClick={()=>setMobileMenuOpen(false)}>×</button></div>{links.map(([id,icon,label])=><button key={id} className={screen===id?"nav active":"nav"} onClick={()=>{go(id);setMobileMenuOpen(false)}}>{icon}<span>{label}</span></button>)}<button className="nav mobile-logout" onClick={logout}>🚪<span>Logout</span></button></aside></>;
   }
+
   function Dashboard() {
     const stockItems=items.map(i=>({ ...i, qty:Number(stockMap[i.id]||0) })).sort((a,b)=>a.item_name.localeCompare(b.item_name));
     const periodLabel=(p)=>p==="day"?"Day":p==="week"?"Week":"Month";
     const periodButtons=(value,setter)=><div className="period-buttons">{[["day","Day"],["week","Week"],["month","Month"]].map(([id,label])=><button type="button" key={id} className={value===id?"period-btn active":"period-btn"} onClick={()=>setter(id)}>{label}</button>)}</div>;
     return <><Header title="Dashboard"><button className="btn primary" onClick={()=>go("create-sale")}>＋ Create Sale</button></Header>
-      <div className="dashboard-filter panel">
-        <div className="dashboard-metric-filter"><b>Sales</b>{periodButtons(salesDashboardPeriod,setSalesDashboardPeriod)}</div>
-        <div className="dashboard-metric-filter"><b>Collections</b>{periodButtons(collectionsDashboardPeriod,setCollectionsDashboardPeriod)}</div>
-        <div className="dashboard-metric-filter"><b>Total Due</b>{periodButtons(dueDashboardPeriod,setDueDashboardPeriod)}</div>
-        <label className="asof-label"><span>As on Date</span><input type="date" value={dashboardAsOnDate} onChange={e=>setDashboardAsOnDate(e.target.value)}/></label>
+      <div className="dashboard-filter panel dashboard-period-single">
+        <div><span className="filter-kicker">Summary Period</span><h3>Sales · Collections · Total Due</h3></div>
+        <div className="period-buttons large">{[["day","Day"],["week","Week"],["month","Month"]].map(([id,label])=><button type="button" key={id} className={dashboardPeriod===id?"period-btn active":"period-btn"} onClick={()=>{setDashboardPeriod(id);setSalesDashboardPeriod(id);setCollectionsDashboardPeriod(id);setDueDashboardPeriod(id)}}>{label}</button>)}</div>
+        <small className="period-note">Selected period ends today. No separate As on Date is required.</small>
       </div>
       <div className="cards">
-        <Card t={`Sales — ${periodLabel(salesDashboardPeriod)}`} v={money(periodSalesTotal)} tone="sales"/>
-        <Card t={`Collections — ${periodLabel(collectionsDashboardPeriod)}`} v={money(periodCollectionsTotal)} tone="collections"/>
+        <Card t={`Sales — ${periodLabel(dashboardPeriod)}`} v={money(periodSalesTotal)} tone="sales"/>
+        <Card t={`Collections — ${periodLabel(dashboardPeriod)}`} v={money(periodCollectionsTotal)} tone="collections"/>
         <Card t="Net Profit" v={money(periodNetProfit)} tone="profit"/>
-        <Card t={`Total Due — ${periodLabel(dueDashboardPeriod)}`} v={money(periodDueTotal)} tone="due"/>
+        <Card t={`Total Due — ${periodLabel(dashboardPeriod)}`} v={money(periodDueTotal)} tone="due"/>
       </div>
       <div className="panel">
         <div className="panel-title-row"><div><h3>Available Stock — Item Wise</h3><small>Click an item name to view stock history</small></div></div>
@@ -914,7 +935,7 @@ function Sidebar() {
   }
 
   function Card({t,v,tone=""}){return <div className={"card "+tone}><span>{t}</span><strong>{v}</strong></div>}
-  function Header({title,children}){return <div className="header"><h1>{title}</h1><div className="header-right">{children}<div className="user-chip"><span>👤</span><div><b>{profile?.full_name||sessionUser?.email||"User"}</b><small>{profile?.role==="receiver"?"Receiver":"Admin"}{profile?.receivers?.receiver_name?` · ${profile.receivers.receiver_name}`:""}</small></div><button type="button" className="logout-btn" onClick={logout}>Logout</button></div></div></div>}
+  function Header({title,children}){return <div className="header"><div className="header-title"><button type="button" className="mobile-menu-btn" onClick={()=>setMobileMenuOpen(true)}>☰</button><h1>{title}</h1></div><div className="header-right">{children}<div className="user-chip"><span>👤</span><div><b>{profile?.full_name||sessionUser?.email||"User"}</b><small>{profile?.role==="receiver"?"Receiver":"Admin"}{profile?.receivers?.receiver_name?` · ${profile.receivers.receiver_name}`:""}</small></div><button type="button" className="logout-btn" onClick={logout}>Logout</button></div></div></div>}
   function Table({children,className=""}){
     const parts=Children.toArray(children);
     const thead=parts.find(x=>isValidElement(x)&&x.type==="thead");
@@ -1018,10 +1039,7 @@ function Sidebar() {
               </div>
               <div><span className="field-caption">Sale Rate</span><input className="compact-input" type="number" min="0" step="0.01" value={x.rate} onChange={e=>setSaleItem(i,"rate",e.target.value)}/></div>
               <div className="cost-picker-cell"><span className="field-caption">Purchased Rate / Cost</span>
-                <select className="compact-input" value={x.cost_rate||""} onChange={e=>setSaleItem(i,"cost_rate",e.target.value)}>
-                  <option value="">Select purchase rate</option>
-                  {getPurchaseRateBatches(x.item_id,saleDate).map((b,bi)=><option key={`${x.item_id}-${b.rate}-${bi}`} value={b.rate}>{money(b.rate)} — {b.available} available{b.label?` · ${b.label}`:""}</option>)}
-                </select>
+                <button type="button" className={`cost-picker-button ${x.cost_rate?"selected":""}`} onClick={()=>setOpenCostPicker(i)}><span>{x.cost_rate?money(x.cost_rate):"Select purchase rate"}</span><b>⌄</b></button>
               </div>
               <div><span className="field-caption">Qty</span><input className="compact-input" type="number" min="0.01" step="0.01" value={x.qty} onChange={e=>setSaleItem(i,"qty",e.target.value)}/></div>
               <div className="stock-cell"><span className="field-caption">Rate Stock</span><b className={Number(x.qty)>getPurchaseRateBatches(x.item_id,saleDate).find(b=>Math.abs(Number(b.rate)-Number(x.cost_rate||0))<0.005)?.available?"stock-danger":"stock-good"}>{getPurchaseRateBatches(x.item_id,saleDate).find(b=>Math.abs(Number(b.rate)-Number(x.cost_rate||0))<0.005)?.available ?? available}</b></div>
@@ -1092,6 +1110,21 @@ function Sidebar() {
       <div className="panel"><h3>Collection History</h3><Table><thead><tr><th>Collection</th><th>Date</th><th>Amount</th><th>Remarks</th></tr></thead><tbody>{linkedCollections.map(c=><tr key={c.id}><td className="link" onClick={()=>editCollection(c)}>{c.collection_no}</td><td>{c.collection_date}</td><td>{money(c.total_amount)}</td><td>{c.remarks||`Payment for ${s?.invoice_no}`}</td></tr>)}{!linkedCollections.length&&<Empty col="4" text="No collection against this invoice yet."/>}</tbody></Table></div>
     </>
   }
+  function PurchaseRateModal({index}){
+    const row=saleItems[index];
+    const batches=getPurchaseRateBatches(row?.item_id,saleDate);
+    const item=items.find(x=>x.id===Number(row?.item_id));
+    if(!row) return null;
+    return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setOpenCostPicker(null)}}>
+      <div className="modal purchase-rate-modal">
+        <div className="modal-head"><div><span className="eyebrow">STOCK COST SELECTION</span><h3>Select Purchase Rate</h3><small>{item?.item_name||"Item"} · {batches.reduce((a,b)=>a+Number(b.available||0),0)} available</small></div><button type="button" onClick={()=>setOpenCostPicker(null)}>×</button></div>
+        <div className="rate-summary"><div><span>Required Qty</span><b>{Number(row.qty||0)}</b></div><div><span>Selected Rate</span><b>{row.cost_rate?money(row.cost_rate):"Not selected"}</b></div><div><span>Available Lots</span><b>{batches.length}</b></div></div>
+        <div className="rate-list">{batches.map((b,bi)=><button type="button" key={`${b.rate}-${bi}`} className={`rate-lot ${Number(row.cost_rate)===Number(b.rate)?"selected":""}`} onClick={()=>{setSaleItem(index,"cost_rate",b.rate);setOpenCostPicker(null)}}><div className="rate-lot-top"><strong>{money(b.rate)} / unit</strong><span>{b.available} available</span></div><div className="rate-lot-meta"><span>Purchase Bill: <b>{b.label||"Opening / existing stock"}</b></span><span>{b.purchases?.[0]?.purchase_date||"Opening stock"}</span></div></button>)}{!batches.length&&<div className="empty">No purchase-rate stock is available for this item.</div>}</div>
+        <div className="modal-actions"><button type="button" className="btn secondary" onClick={()=>setOpenCostPicker(null)}>Cancel</button></div>
+      </div>
+    </div>;
+  }
+
   function Sales(){
     const rows=sales.filter(s=>{
       if(s.invoice_date>salesAsOnDate) return false;
@@ -1115,58 +1148,19 @@ function Sidebar() {
   }
 
   function Payment(){
-    const dueSales=sales.filter(s=>s.customer_id===Number(paymentCustomer)&&Number(s.due_amount)>0);
-    const customer=customers.find(c=>c.id===Number(paymentCustomer));
-    const shownSales=paymentInvoiceId ? dueSales.filter(s=>s.id===Number(paymentInvoiceId)) : dueSales;
-    return <><Header title="Collect Amount"><button className="btn secondary" onClick={()=>go("collections")}>Cancel</button></Header>
-      <form className="panel" onSubmit={makePayment}>
-        <div className="grid-form">
-          <label>Customer*
-            <select value={paymentCustomer} onChange={e=>{setPaymentCustomer(e.target.value);setPaymentAmounts({});setPaymentOldDue("");}}>
-              <option value="">Select Customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.customer_name} — {c.mobile_no||""}</option>)}
-            </select>
-          </label>
-          <label>Collection Date<input type="date" value={paymentDate} onChange={e=>setPaymentDate(e.target.value)}/></label>
-          <label>Receiver*
-            <select value={paymentReceiver} onChange={e=>setPaymentReceiver(e.target.value)}>
-              <option value="">Select Receiver</option>{receivers.map(r=><option key={r.id} value={r.id}>{r.receiver_name} ({money(r.current_balance)})</option>)}
-            </select>
-          </label>
-          <label>Received As*
-            <select value={paymentMode} onChange={e=>setPaymentMode(e.target.value)}>
-              <option value="CASH">Cash</option><option value="PHONEPE">PhonePe</option>
-            </select>
-          </label>
-        </div>
-
-        {customer && Number(customer.opening_due)>0 && <div className="old-due-box">
-          <div><b>Old Due</b><small>Opening due before invoices: {money(customer.opening_due)}</small></div>
-          <input type="number" min="0" max={customer.opening_due} step="0.01" value={paymentOldDue}
-            onChange={e=>setPaymentOldDue(e.target.value)} placeholder="Collect old due"/>
-        </div>}
-
-        <h3 className="payment-section-title">Invoice Details</h3>
-        <div className="payment-mobile-list">
-          {shownSales.map(s=><div className="payment-invoice-card" key={s.id}>
-            <div className="payment-invoice-head"><b>{s.invoice_no}</b><span>{s.invoice_date}</span></div>
-            <div className="payment-invoice-grid">
-              <div><small>Invoice</small><b>{money(s.total_amount)}</b></div>
-              <div><small>Paid</small><b>{money(s.paid_amount)}</b></div>
-              <div><small>Balance</small><b>{money(s.due_amount)}</b></div>
-              <label><small>Collect Amount</small>
-                <input type="number" inputMode="decimal" min="0" max={s.due_amount} step="0.01"
-                  value={paymentAmounts[s.id] ?? ""}
-                  onChange={e=>setPaymentAmounts(prev=>({...prev,[s.id]:e.target.value}))}
-                  placeholder="0.00"/>
-              </label>
-            </div>
-          </div>)}
-        </div>
-        {!shownSales.length && <div className="empty">{paymentCustomer ? "No outstanding invoice due." : "Select a customer to see invoice dues."}</div>}
-
-        <label className="note-label">Remarks<textarea value={paymentNote} onChange={e=>setPaymentNote(e.target.value)} placeholder="Enter collection remarks"/></label>
-        <div className="form-actions"><button className="btn primary">Save Collection</button></div>
-      </form>
+    const q=String(paymentPurchaseSearch||"").trim().toLowerCase();
+    const bills=purchases.filter(p=>Number(p.due_amount||0)>0 && (!q||`${p.purchase_no||""} ${p.suppliers?.supplier_name||""}`.toLowerCase().includes(q)));
+    const totalDue=bills.reduce((a,p)=>a+Number(p.due_amount||0),0);
+    return <><Header title="Purchase Payments"><button className="btn secondary" onClick={()=>go("procurement")}>Purchase Register</button></Header>
+      <div className="panel payment-page-intro"><div><span className="eyebrow">SUPPLIER PAYMENTS</span><h2>Purchase Bills</h2><p>Record payments against purchase bills. Customer invoice collections remain under Collections.</p></div><div className="payment-total-due"><small>Total outstanding</small><strong>{money(totalDue)}</strong></div></div>
+      <div className="panel purchase-bill-filter"><label className="filter-search">Search Purchase Bill<input placeholder="Purchase bill no. / supplier" value={paymentPurchaseSearch} onChange={e=>setPaymentPurchaseSearch(e.target.value)}/></label><button type="button" className="btn secondary" onClick={()=>setPaymentPurchaseSearch("")}>Clear</button><span>{bills.length} bills due</span></div>
+      <div className="purchase-bill-grid">{bills.map(p=><div className="purchase-bill-card" key={p.id}>
+        <div className="purchase-bill-head"><div><span className="bill-label">PURCHASE BILL</span><h3>{p.purchase_no}</h3><small>{p.purchase_date}</small></div><Status status={p.payment_status}/></div>
+        <div className="purchase-bill-supplier"><span>Supplier</span><b>{p.suppliers?.supplier_name||"-"}</b></div>
+        <div className="purchase-bill-amounts"><div><small>Bill Amount</small><b>{money(p.total_amount)}</b></div><div><small>Paid</small><b>{money(p.paid_amount)}</b></div><div><small>Balance Due</small><b className="due-value">{money(p.due_amount)}</b></div></div>
+        <div className="purchase-bill-actions"><button type="button" className="btn primary" onClick={()=>{setPurchasePaymentId(p.id);setPurchasePaymentAmount("");setPurchasePaymentDate(today());setPurchasePaymentReceiver(p.receiver_id?String(p.receiver_id):"");setPurchasePaymentMode(p.payment_mode||"CASH");setPurchasePaymentNote(`Payment for ${p.purchase_no}`)}}>Pay Bill</button><button type="button" className="btn secondary" onClick={()=>{setEditingPurchase(p.id);setPurchaseDate(p.purchase_date);setPurchaseSupplier(String(p.supplier_id));setPurchaseItems((p.purchase_items||[]).map(x=>({item_id:String(x.item_id),rate:x.rate,qty:x.qty})));go("purchase")}}>View Bill</button></div>
+      </div>)}{!bills.length&&<div className="panel empty">No outstanding purchase bills.</div>}</div>
+      {purchasePaymentId&&<PurchasePaymentModal/>}
     </>
   }
 
@@ -1561,5 +1555,13 @@ function Sidebar() {
     loginBusy={loginBusy}
   />;
   if (loading) return <div className="loading">Loading B Reddy Sales…</div>;
-  return <><div className="app"><Sidebar/><main className="main">{notice&&<div className="notice" style={{position:"fixed",top:"18px",right:"18px",left:"auto",zIndex:3000,maxWidth:"min(620px,calc(100vw - 36px))",whiteSpace:"normal"}}>{notice}</div>}{screen==="dashboard"&&Dashboard()}{screen==="create-sale"&&CreateSale()}{screen==="sales"&&Sales()}{screen==="customers"&&Customers()}{screen==="customer-detail"&&CustomerDetail()}{screen==="invoice-detail"&&InvoiceDetail()}{screen==="collections"&&Collections()}{screen==="payment"&&Payment()}{screen==="stock"&&Stock()}{screen==="procurement"&&Procurement()}{screen==="purchase"&&Purchase()}{screen==="expenses"&&Expenses()}{screen==="reports"&&Reports()}{screen==="master"&&Master()}</main></div>{auditTarget&&<AuditModal/>}</>;
+  return <><style jsx global>{`
+*{box-sizing:border-box}.mobile-menu-btn,.mobile-close,.mobile-overlay{display:none}
+.dashboard-period-single{display:grid;grid-template-columns:minmax(220px,1fr) auto;align-items:center;gap:18px}.dashboard-period-single h3{margin:4px 0}.filter-kicker,.eyebrow{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.65}.period-note{grid-column:1/-1;opacity:.65}.period-buttons.large{display:flex;gap:6px}.period-buttons.large .period-btn{min-width:92px}
+.expense-filter-panel .filter-title,.purchase-bill-filter,.payment-page-intro{display:flex;align-items:center;justify-content:space-between;gap:16px}.filter-title small{display:block;opacity:.65;margin-top:3px}.filter-grid{display:grid;gap:12px;margin-top:16px}.expense-filter-grid{grid-template-columns:2fr repeat(6,minmax(120px,1fr))}.expense-filter-grid .filter-search{min-width:240px}
+.payment-page-intro{background:linear-gradient(135deg,#f7faff,#fff)}.payment-page-intro h2{margin:4px 0}.payment-page-intro p{margin:0;opacity:.7}.payment-total-due{padding:14px 18px;border:1px solid #d9e3f2;border-radius:14px;text-align:right}.payment-total-due small{display:block;opacity:.65}.payment-total-due strong{font-size:24px}.purchase-bill-filter{margin-top:12px}.purchase-bill-filter label{flex:1;max-width:620px}.purchase-bill-filter>span{font-weight:700;opacity:.7}.purchase-bill-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:14px}.purchase-bill-card{background:#fff;border:1px solid #dbe4f0;border-radius:16px;padding:18px;box-shadow:0 4px 18px rgba(30,60,100,.06)}.purchase-bill-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.purchase-bill-head h3{margin:3px 0}.purchase-bill-head small{opacity:.65}.bill-label{font-size:10px;font-weight:800;letter-spacing:.08em;color:#2563eb}.purchase-bill-supplier{margin:18px 0;padding:12px;background:#f7f9fc;border-radius:10px}.purchase-bill-supplier span{display:block;font-size:11px;opacity:.6}.purchase-bill-amounts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.purchase-bill-amounts div{padding:10px;border:1px solid #e5eaf1;border-radius:10px}.purchase-bill-amounts small{display:block;opacity:.6}.purchase-bill-amounts b{display:block;margin-top:4px}.due-value{color:#dc2626}.purchase-bill-actions{display:flex;gap:8px;margin-top:16px}.purchase-bill-actions .btn{flex:1}
+.cost-picker-button{width:100%;min-height:42px;padding:8px 10px;border:1px solid #cbd5e1;background:#fff;border-radius:8px;display:flex;align-items:center;justify-content:space-between;text-align:left;cursor:pointer}.cost-picker-button.selected{border-color:#2563eb;background:#f8fbff}.purchase-rate-modal{max-width:760px}.rate-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}.rate-summary div{padding:12px;border:1px solid #dce5f0;border-radius:10px;background:#f8fafc}.rate-summary span{display:block;font-size:11px;opacity:.6}.rate-summary b{display:block;margin-top:4px}.rate-list{display:grid;gap:10px;max-height:48vh;overflow:auto}.rate-lot{border:1px solid #d8e2ef;background:#fff;border-radius:12px;padding:13px;text-align:left;cursor:pointer}.rate-lot:hover,.rate-lot.selected{border-color:#2563eb;background:#f7faff}.rate-lot-top,.rate-lot-meta{display:flex;justify-content:space-between;gap:12px}.rate-lot-meta{margin-top:7px;font-size:12px;opacity:.7}.header-title{display:flex;align-items:center;gap:10px}
+@media(max-width:900px){.mobile-menu-btn{display:inline-flex;width:40px;height:40px;align-items:center;justify-content:center;border:1px solid #d8e1ee;background:#fff;border-radius:10px;font-size:20px}.mobile-overlay{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:3998}.mobile-overlay.open{display:block}.sidebar{position:fixed;left:0;top:0;bottom:0;width:280px;z-index:3999;transform:translateX(-105%);transition:transform .2s ease;box-shadow:10px 0 30px rgba(0,0,0,.18)}.sidebar.mobile-open{transform:translateX(0)}.mobile-close{display:block;position:absolute;right:8px;top:8px;border:0;background:transparent;color:#fff;font-size:26px}.main{margin-left:0!important;width:100%}.dashboard-period-single{grid-template-columns:1fr}.period-buttons.large{width:100%}.period-buttons.large .period-btn{flex:1}.expense-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.expense-filter-grid .filter-search{grid-column:1/-1;min-width:0}.purchase-bill-grid{grid-template-columns:1fr}.purchase-bill-filter{flex-wrap:wrap}.purchase-bill-filter label{max-width:none;width:100%}.rate-summary{grid-template-columns:1fr}.purchase-rate-modal{width:min(96vw,760px)}.purchase-bill-amounts{grid-template-columns:1fr}.purchase-bill-actions{flex-direction:column}}
+@media(max-width:600px){.header h1{font-size:22px}.header-right{flex:1;justify-content:flex-end}.btn{min-height:40px}.cards{grid-template-columns:1fr 1fr!important}.expense-filter-grid{grid-template-columns:1fr}.expense-filter-grid .filter-search{grid-column:auto}.panel{border-radius:12px}.table-wrap{overflow-x:auto}.modal{width:calc(100vw - 24px)!important;max-height:90vh;overflow:auto}}
+`}</style><div className="app"><Sidebar/><main className="main">{notice&&<div className="notice" style={{position:"fixed",top:"18px",right:"18px",left:"auto",zIndex:3000,maxWidth:"min(620px,calc(100vw - 36px))",whiteSpace:"normal"}}>{notice}</div>}{screen==="dashboard"&&Dashboard()}{screen==="create-sale"&&CreateSale()}{screen==="sales"&&Sales()}{screen==="customers"&&Customers()}{screen==="customer-detail"&&CustomerDetail()}{screen==="invoice-detail"&&InvoiceDetail()}{screen==="collections"&&Collections()}{screen==="payment"&&Payment()}{screen==="stock"&&Stock()}{screen==="procurement"&&Procurement()}{screen==="purchase"&&Purchase()}{screen==="expenses"&&Expenses()}{screen==="reports"&&Reports()}{screen==="master"&&Master()}</main></div>{openCostPicker!==null&&<PurchaseRateModal index={openCostPicker}/>} {auditTarget&&<AuditModal/>}</>;
 }
