@@ -231,6 +231,10 @@ export default function Home() {
 
   async function loadAll() {
     setLoading(true);
+    const withTimeout = (promise, ms = 15000) => Promise.race([
+      Promise.resolve(promise),
+      new Promise(resolve => setTimeout(() => resolve({data: [], error: {message: "Request timed out. Please refresh and try again."}}), ms))
+    ]);
     const queries = await Promise.all([
       db.from("customers").select("*").eq("status", true).order("customer_name"),
       db.from("item_master").select("*").eq("status", true).order("item_name"),
@@ -244,7 +248,7 @@ export default function Home() {
       db.from("expenses").select("*, expense_types(type_name), receivers(receiver_name)").order("expense_date", { ascending: false }),
       db.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(500),
       profile?.role === "admin" ? db.from("user_profiles").select("*, receivers(receiver_name)").order("full_name") : Promise.resolve({data:[],error:null})
-    ]);
+    ].map(q => withTimeout(q)));
     const [c,i,r,s,sa,co,pu,st,et,ex,au,up] = queries;
     const firstError = [c,i,r,s,sa,co,pu,st,et,ex,au].find(x => x.error);
     if (firstError) setNotice(firstError.error.message);
