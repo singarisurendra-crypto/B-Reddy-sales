@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getCurrentUser } from '../../../../lib/server/session';
+import { getCurrentUser } from '../../server/session';
 
 export async function GET() {
   const user = await getCurrentUser();
